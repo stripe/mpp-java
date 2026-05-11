@@ -20,13 +20,14 @@ import java.util.Map;
  *     chargeIntent,
  *     "10.000000", "USDC", "0xRecipientAddress"
  * );
- * switch (result) {
- *     case VerifyResult.Challenged c ->
- *         // HTTP 402 — return the challenge
- *         response.setHeader("WWW-Authenticate", c.challenge().toWwwAuthenticate());
- *     case VerifyResult.Verified v ->
- *         // Payment verified — return the receipt
- *         response.setHeader("Payment-Receipt", v.receipt().toPaymentReceipt());
+ * if (result instanceof VerifyResult.Challenged) {
+ *     VerifyResult.Challenged challenged = (VerifyResult.Challenged) result;
+ *     // HTTP 402 — return the challenge
+ *     response.setHeader("WWW-Authenticate", challenged.challenge().toWwwAuthenticate());
+ * } else {
+ *     VerifyResult.Verified verified = (VerifyResult.Verified) result;
+ *     // Payment verified — return the receipt
+ *     response.setHeader("Payment-Receipt", verified.receipt().toPaymentReceipt());
  * }
  * }</pre>
  *

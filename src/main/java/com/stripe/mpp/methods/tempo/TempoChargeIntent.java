@@ -56,10 +56,10 @@ public class TempoChargeIntent implements Intent {
     @Override
     @SuppressWarnings("unchecked")
     public Receipt verify(Credential credential, Map<String, Object> request) {
-        if (!(credential.payload() instanceof Map<?, ?> raw)) {
+        if (!(credential.payload() instanceof Map<?, ?>)) {
             throw new VerificationFailedException("missing or invalid payload");
         }
-        Map<String, Object> payload = (Map<String, Object>) raw;
+        Map<String, Object> payload = (Map<String, Object>) credential.payload();
 
         if (payload.containsKey("transaction")) {
             // Pull: client signed the tx, server broadcasts it.

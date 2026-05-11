@@ -39,7 +39,7 @@ public final class BodyDigest {
     }
 
     private static byte[] toBytes(Object body) {
-        if (body instanceof byte[] b) return b;
+        if (body instanceof byte[]) return (byte[]) body;
         String str = body instanceof Map ? Json.compact(body) : body.toString();
         return str.getBytes(StandardCharsets.UTF_8);
     }

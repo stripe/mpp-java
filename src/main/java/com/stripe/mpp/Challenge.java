@@ -3,22 +3,58 @@ package com.stripe.mpp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * An MPP payment challenge sent to the client in the WWW-Authenticate header.
  */
-public record Challenge(
-    String id,
-    String method,
-    String intent,
-    Map<String, Object> request,
-    String realm,
-    String requestB64,
-    String digest,
-    String expires,
-    String description,
-    Map<String, Object> opaque
-) {
+public final class Challenge {
+    private final String id;
+    private final String method;
+    private final String intent;
+    private final Map<String, Object> request;
+    private final String realm;
+    private final String requestB64;
+    private final String digest;
+    private final String expires;
+    private final String description;
+    private final Map<String, Object> opaque;
+
+    public Challenge(
+        String id,
+        String method,
+        String intent,
+        Map<String, Object> request,
+        String realm,
+        String requestB64,
+        String digest,
+        String expires,
+        String description,
+        Map<String, Object> opaque
+    ) {
+        this.id = id;
+        this.method = method;
+        this.intent = intent;
+        this.request = request;
+        this.realm = realm;
+        this.requestB64 = requestB64;
+        this.digest = digest;
+        this.expires = expires;
+        this.description = description;
+        this.opaque = opaque;
+    }
+
+    public String id() { return id; }
+    public String method() { return method; }
+    public String intent() { return intent; }
+    public Map<String, Object> request() { return request; }
+    public String realm() { return realm; }
+    public String requestB64() { return requestB64; }
+    public String digest() { return digest; }
+    public String expires() { return expires; }
+    public String description() { return description; }
+    public Map<String, Object> opaque() { return opaque; }
+
     /**
      * Create a new challenge with a cryptographically bound ID.
      */
@@ -105,5 +141,43 @@ public record Challenge(
      */
     public ChallengeEcho toEcho() {
         return new ChallengeEcho(id, realm, method, intent, requestB64, expires, digest, opaque);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Challenge)) return false;
+        Challenge challenge = (Challenge) o;
+        return Objects.equals(id, challenge.id)
+            && Objects.equals(method, challenge.method)
+            && Objects.equals(intent, challenge.intent)
+            && Objects.equals(request, challenge.request)
+            && Objects.equals(realm, challenge.realm)
+            && Objects.equals(requestB64, challenge.requestB64)
+            && Objects.equals(digest, challenge.digest)
+            && Objects.equals(expires, challenge.expires)
+            && Objects.equals(description, challenge.description)
+            && Objects.equals(opaque, challenge.opaque);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, method, intent, request, realm, requestB64, digest, expires, description, opaque);
+    }
+
+    @Override
+    public String toString() {
+        return "Challenge["
+            + "id=" + id
+            + ", method=" + method
+            + ", intent=" + intent
+            + ", request=" + request
+            + ", realm=" + realm
+            + ", requestB64=" + requestB64
+            + ", digest=" + digest
+            + ", expires=" + expires
+            + ", description=" + description
+            + ", opaque=" + opaque
+            + "]";
     }
 }

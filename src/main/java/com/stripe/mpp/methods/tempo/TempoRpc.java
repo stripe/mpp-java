@@ -34,10 +34,10 @@ class TempoRpc {
 
     String sendRawTransaction(String rpcUrl, String rawTx) {
         Object result = call(rpcUrl, "eth_sendRawTransaction", List.of(rawTx));
-        if (!(result instanceof String txHash)) {
+        if (!(result instanceof String)) {
             throw new VerificationFailedException("unexpected eth_sendRawTransaction response");
         }
-        return txHash;
+        return (String) result;
     }
 
     @SuppressWarnings("unchecked")

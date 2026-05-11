@@ -15,11 +15,12 @@ import java.util.Map;
  *     chargeIntent,
  *     "10.000000", "USD", "0xRecipient"
  * );
- * switch (result) {
- *     case VerifyResult.Challenged c ->
- *         response.setHeader("WWW-Authenticate", c.challenge().toWwwAuthenticate());
- *     case VerifyResult.Verified v ->
- *         response.setHeader("Payment-Receipt", v.receipt().toPaymentReceipt());
+ * if (result instanceof VerifyResult.Challenged) {
+ *     VerifyResult.Challenged challenged = (VerifyResult.Challenged) result;
+ *     response.setHeader("WWW-Authenticate", challenged.challenge().toWwwAuthenticate());
+ * } else {
+ *     VerifyResult.Verified verified = (VerifyResult.Verified) result;
+ *     response.setHeader("Payment-Receipt", verified.receipt().toPaymentReceipt());
  * }
  * }</pre>
  */
@@ -90,6 +91,8 @@ public class MppHandler {
         if (method.memo()     != null) request.put("memo",      method.memo());
         if (method.feePayer() != null) request.put("fee_payer", method.feePayer());
         if (method.chain()    != null) request.put("chain",     method.chain());
+
+        request = method.transformRequest(request);
 
         return Verify.verifyOrChallenge(
             authorization, intent, request, realm, secretKey,

@@ -3,14 +3,18 @@ plugins {
     id 'maven-publish'
 }
 
-group = 'com.stripe'
+group = 'io.github.raubrey2014'
 version = '0.1.0'
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
     withJavadocJar()
     withSourcesJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 11
 }
 
 repositories {
@@ -19,6 +23,7 @@ repositories {
 
 dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.1'
+    implementation 'com.stripe:stripe-java:25.3.0'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
     testImplementation 'org.assertj:assertj-core:3.26.0'
@@ -33,11 +38,11 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             from components.java
-            artifactId = 'mpp-java'
+            artifactId = 'mpp-java-poc'
 
             pom {
-                name = 'MPP Java SDK'
-                description = 'Java SDK for the Machine Payments Protocol (MPP)'
+                name = 'MPP Java SDK POC'
+                description = 'Proof-of-concept Java SDK for the Machine Payments Protocol (MPP)'
                 url = 'https://github.com/raubrey2014/mpp-java-poc'
 
                 licenses {

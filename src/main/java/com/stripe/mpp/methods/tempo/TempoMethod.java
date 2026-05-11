@@ -6,16 +6,14 @@ import com.stripe.mpp.server.Method;
 import java.util.List;
 
 /**
- * MPP payment method for Tempo, an EVM-based stablecoin payment network.
+ * MPP payment method for Tempo. Obtain instances via {@link Tempo#method()}.
  *
  * <pre>{@code
- * TempoMethod tempo = TempoMethod.create(
- *     "https://rpc.example.com",
- *     "eip155:84532"                  // chain ID
- * );
+ * TempoMethod tempo = Tempo.method();          // mainnet
+ * TempoMethod tempo = Tempo.method(true);      // testnet (Moderato)
+ *
  * MppHandler server = Mpp.create(tempo, "api.example.com", secretKey);
  *
- * // In your HTTP handler:
  * VerifyResult result = server.charge(
  *     request.getHeader("Authorization"),
  *     tempo.chargeIntent(),
@@ -25,29 +23,23 @@ import java.util.List;
  */
 public class TempoMethod implements Method {
     private final String chain;
-    private final String memo;
-    private final String feePayer;
     private final TempoChargeIntent chargeIntent;
 
-    private TempoMethod(String rpcUrl, String chain, String memo, String feePayer) {
+    private TempoMethod(String rpcUrl, String chain) {
         this.chain = chain;
-        this.memo = memo;
-        this.feePayer = feePayer;
         this.chargeIntent = new TempoChargeIntent(rpcUrl);
     }
 
-    public static TempoMethod create(String rpcUrl, String chain) {
-        return new TempoMethod(rpcUrl, chain, null, null);
+    static TempoMethod mainnet() {
+        return new TempoMethod(TempoDefaults.MAINNET_RPC, TempoDefaults.MAINNET_CHAIN);
     }
 
-    public static TempoMethod create(String rpcUrl, String chain, String memo, String feePayer) {
-        return new TempoMethod(rpcUrl, chain, memo, feePayer);
+    static TempoMethod testnet() {
+        return new TempoMethod(TempoDefaults.TESTNET_RPC, TempoDefaults.TESTNET_CHAIN);
     }
 
-    @Override public String name()    { return "tempo"; }
-    @Override public String chain()   { return chain; }
-    @Override public String memo()    { return memo; }
-    @Override public String feePayer(){ return feePayer; }
+    @Override public String name()  { return "tempo"; }
+    @Override public String chain() { return chain; }
 
     @Override
     public List<Class<? extends Intent>> intents() {

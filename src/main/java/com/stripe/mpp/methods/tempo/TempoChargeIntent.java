@@ -19,13 +19,9 @@ import java.util.Map;
  * </ul>
  *
  * <pre>{@code
- * TempoMethod tempo = TempoMethod.create("https://rpc.example.com", "eip155:84532");
- * MppHandler server = Mpp.create(tempo, "api.example.com", secretKey);
- *
- * // In your HTTP handler:
  * VerifyResult result = server.charge(
  *     request.getHeader("Authorization"),
- *     tempo.chargeIntent(),
+ *     Tempo.chargeIntent(),          // or Tempo.chargeIntent(true) for testnet
  *     "10.000000", "USDC", "0xRecipient"
  * );
  * }</pre>
@@ -39,7 +35,7 @@ public class TempoChargeIntent implements Intent {
     private final long retryDelayMs;
     private final TempoRpc rpc;
 
-    public TempoChargeIntent(String rpcUrl) {
+    TempoChargeIntent(String rpcUrl) {
         this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc());
     }
 

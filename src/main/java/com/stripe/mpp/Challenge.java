@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * An MPP payment challenge sent to the client in the WWW-Authenticate header.
@@ -134,6 +135,16 @@ public final class Challenge {
      */
     public String toWwwAuthenticate() {
         return Parsing.formatWwwAuthenticate(this);
+    }
+
+    /**
+     * Serialize multiple challenges to a list of WWW-Authenticate header values — one per challenge.
+     * Use {@code response.addHeader("WWW-Authenticate", h)} for each entry.
+     */
+    public static List<String> toWwwAuthenticate(List<Challenge> challenges) {
+        return challenges.stream()
+            .map(Challenge::toWwwAuthenticate)
+            .collect(Collectors.toList());
     }
 
     /**

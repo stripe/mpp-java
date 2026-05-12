@@ -1,10 +1,13 @@
 package com.stripe.mpp;
 
+import com.stripe.mpp.server.ChargeDescriptor;
+import com.stripe.mpp.server.ComposedHandler;
 import com.stripe.mpp.server.Method;
 import com.stripe.mpp.server.MppHandler;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.Map;
 
 /**
@@ -52,6 +55,31 @@ public final class Mpp {
      */
     public static MppHandler create(Method method, String realm, String secretKey) {
         return MppHandler.create(method, realm, secretKey);
+    }
+
+    /**
+     * Compose multiple payment methods into a single handler that presents all challenges at once.
+     *
+     * <pre>{@code
+     * ComposedHandler composed = Mpp.compose(
+     *     tempoHandler.chargeDescriptor(tempoIntent, "1.000000", "USDC", "0xRecipient"),
+     *     stripeHandler.chargeDescriptor(stripeIntent, "1.00", "usd", null)
+     * );
+     *
+     * VerifyResult result = composed.charge(request.getHeader("Authorization"));
+     * if (result instanceof VerifyResult.Challenged) {
+     *     List<String> headers = Challenge.toWwwAuthenticate(
+     *         ((VerifyResult.Challenged) result).challenges()
+     *     );
+     *     headers.forEach(h -> response.addHeader("WWW-Authenticate", h));
+     * } else {
+     *     VerifyResult.Verified verified = (VerifyResult.Verified) result;
+     *     response.setHeader("Payment-Receipt", verified.receipt().toPaymentReceipt());
+     * }
+     * }</pre>
+     */
+    public static ComposedHandler compose(ChargeDescriptor... descriptors) {
+        return new ComposedHandler(Arrays.asList(descriptors));
     }
 
     /**

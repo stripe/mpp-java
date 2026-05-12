@@ -4,6 +4,7 @@ import com.stripe.mpp.Challenge;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -22,33 +23,47 @@ import java.util.Objects;
  */
 public interface VerifyResult {
     /**
-     * Payment is required — return the challenge in a WWW-Authenticate header with HTTP 402.
+     * Payment is required — return the challenge(s) in WWW-Authenticate header(s) with HTTP 402.
+     *
+     * <p>Single-method case: use {@link #challenge()} or {@link #challenges()}.
+     * Multi-method case (compose): use {@link #challenges()} and set one header per entry.
      */
     final class Challenged implements VerifyResult {
-        private final Challenge challenge;
+        private final List<Challenge> challenges;
 
         public Challenged(Challenge challenge) {
-            this.challenge = challenge;
+            this.challenges = List.of(challenge);
         }
 
-        public Challenge challenge() { return challenge; }
+        public Challenged(List<Challenge> challenges) {
+            if (challenges == null || challenges.isEmpty()) {
+                throw new IllegalArgumentException("At least one challenge is required");
+            }
+            this.challenges = List.copyOf(challenges);
+        }
+
+        /** The first (or only) challenge. Equivalent to {@code challenges().get(0)}. */
+        public Challenge challenge() { return challenges.get(0); }
+
+        /** All challenges — one per payment method. */
+        public List<Challenge> challenges() { return challenges; }
 
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
             if (!(o instanceof Challenged)) return false;
             Challenged that = (Challenged) o;
-            return Objects.equals(challenge, that.challenge);
+            return Objects.equals(challenges, that.challenges);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(challenge);
+            return Objects.hash(challenges);
         }
 
         @Override
         public String toString() {
-            return "Challenged[challenge=" + challenge + "]";
+            return "Challenged[challenges=" + challenges + "]";
         }
     }
 

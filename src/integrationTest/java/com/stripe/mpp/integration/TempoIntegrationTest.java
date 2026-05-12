@@ -13,12 +13,18 @@ import com.stripe.mpp.server.VerifyResult;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.generated.Uint256;
 import org.web3j.crypto.Credentials;
 import org.web3j.crypto.RawTransaction;
 import org.web3j.crypto.TransactionEncoder;
 import org.web3j.utils.Numeric;
 
 import java.math.BigInteger;
+import java.util.Arrays;
+import java.util.Collections;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -48,9 +54,11 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 class TempoIntegrationTest {
 
     // Well-known Hardhat/Foundry/Anvil dev account #0 — pre-funded on --dev nodes.
-    static final String SENDER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+    static final String SENDER_KEY      = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
     // Dev account #1 — used as the payment recipient.
-    static final String RECIPIENT  = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+    static final String RECIPIENT       = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+    // TIP-20 token contract (the faucet address configured in docker-compose.yml).
+    static final String TOKEN_CONTRACT  = "0x20c0000000000000000000000000000000000000";
 
     static String     rpcUrl;
     static long       chainId;
@@ -176,13 +184,21 @@ class TempoIntegrationTest {
         );
     }
 
-    private String buildSignedTx(BigInteger nonce, BigInteger valueWei) throws Exception {
-        RawTransaction tx = RawTransaction.createEtherTransaction(
+    private String buildSignedTx(BigInteger nonce, BigInteger tokenAmount) throws Exception {
+        // Encode transfer(address recipient, uint256 amount) on the TIP-20 token contract.
+        Function function = new Function(
+            "transfer",
+            Arrays.asList(new Address(RECIPIENT), new Uint256(tokenAmount)),
+            Collections.emptyList()
+        );
+        String data = FunctionEncoder.encode(function);
+        RawTransaction tx = RawTransaction.createTransaction(
             nonce,
             BigInteger.valueOf(875_000_000L), // gas price (0.875 Gwei)
-            BigInteger.valueOf(21_000L),       // gas limit for a plain transfer
-            RECIPIENT,
-            valueWei
+            BigInteger.valueOf(100_000L),      // gas limit for a token transfer
+            TOKEN_CONTRACT,
+            BigInteger.ZERO,
+            data
         );
         byte[] signed = TransactionEncoder.signMessage(tx, chainId, signer);
         return Numeric.toHexString(signed);

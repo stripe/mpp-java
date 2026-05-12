@@ -109,4 +109,46 @@ public class MppHandler {
     public VerifyResult charge(String authorization, Intent intent) {
         return charge(authorization, intent, null, null, null, null, null, null);
     }
+
+    /**
+     * Create a {@link ChargeDescriptor} pre-configured with the given parameters for use
+     * with {@link com.stripe.mpp.Mpp#compose}.
+     */
+    public ChargeDescriptor chargeDescriptor(
+        Intent intent,
+        String amount,
+        String currency,
+        String recipient,
+        String description,
+        Map<String, Object> meta,
+        String expires
+    ) {
+        return new ChargeDescriptor(this, intent, amount, currency, recipient, description, meta, expires);
+    }
+
+    /** Convenience overload with required fields only. */
+    public ChargeDescriptor chargeDescriptor(Intent intent, String amount, String currency, String recipient) {
+        return chargeDescriptor(intent, amount, currency, recipient, null, null, null);
+    }
+
+    /** Build the request map for this handler and descriptor (applies defaults and method transforms). */
+    Map<String, Object> buildRequest(ChargeDescriptor d) {
+        String resolvedCurrency  = d.currency()  != null ? d.currency()  : (String) defaults.get("currency");
+        String resolvedRecipient = d.recipient() != null ? d.recipient() : (String) defaults.get("recipient");
+        String resolvedAmount    = d.amount()    != null ? d.amount()    : (String) defaults.get("amount");
+
+        if (resolvedCurrency  == null) throw new IllegalArgumentException("Currency is required");
+        if (resolvedRecipient == null) throw new IllegalArgumentException("Recipient is required");
+        if (resolvedAmount    == null) throw new IllegalArgumentException("Amount is required");
+
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("amount",    resolvedAmount);
+        request.put("currency",  resolvedCurrency);
+        request.put("recipient", resolvedRecipient);
+        if (method.memo()     != null) request.put("memo",      method.memo());
+        if (method.feePayer() != null) request.put("fee_payer", method.feePayer());
+        if (method.chain()    != null) request.put("chain",     method.chain());
+
+        return method.transformRequest(request);
+    }
 }

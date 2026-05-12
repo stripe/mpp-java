@@ -18,11 +18,15 @@ import org.web3j.abi.datatypes.Address;
 import org.web3j.abi.datatypes.Function;
 import org.web3j.abi.datatypes.generated.Uint256;
 import org.web3j.crypto.Credentials;
-import org.web3j.crypto.RawTransaction;
-import org.web3j.crypto.TransactionEncoder;
+import org.web3j.crypto.Sign;
+import org.web3j.rlp.RlpEncoder;
+import org.web3j.rlp.RlpList;
+import org.web3j.rlp.RlpString;
+import org.web3j.rlp.RlpType;
 import org.web3j.utils.Numeric;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.net.URI;
@@ -184,24 +188,88 @@ class TempoIntegrationTest {
         );
     }
 
+    /**
+     * Build a signed Tempo 0x76 transaction that calls transfer(address,uint256)
+     * on the TIP-20 token contract.
+     *
+     * <p>Tempo uses a custom transaction type (0x76) distinct from legacy EVM transactions.
+     * RLP field order (tempo-primitives TempoTransaction):
+     * chain_id, max_priority_fee_per_gas, max_fee_per_gas, gas_limit, calls, access_list,
+     * nonce_key, nonce, valid_before, valid_after, fee_token, fee_payer_signature,
+     * tempo_auth_list — followed by the secp256k1 signature bytes (r||s||v, 65 bytes).
+     */
     private String buildSignedTx(BigInteger nonce, BigInteger tokenAmount) throws Exception {
-        // Encode transfer(address recipient, uint256 amount) on the TIP-20 token contract.
+        // ABI-encode transfer(address, uint256) call data
         Function function = new Function(
             "transfer",
             Arrays.asList(new Address(RECIPIENT), new Uint256(tokenAmount)),
             Collections.emptyList()
         );
-        String data = FunctionEncoder.encode(function);
-        RawTransaction tx = RawTransaction.createTransaction(
-            nonce,
-            BigInteger.valueOf(875_000_000L), // gas price (0.875 Gwei)
-            BigInteger.valueOf(100_000L),      // gas limit for a token transfer
-            TOKEN_CONTRACT,
-            BigInteger.ZERO,
-            data
-        );
-        byte[] signed = TransactionEncoder.signMessage(tx, chainId, signer);
-        return Numeric.toHexString(signed);
+        byte[] callData = Numeric.hexStringToByteArray(FunctionEncoder.encode(function));
+        byte[] toAddress = Numeric.hexStringToByteArray(TOKEN_CONTRACT);
+
+        // Fetch gas price from the dev node
+        BigInteger gasPrice = Numeric.decodeQuantity(
+            (String) rpc("eth_gasPrice", List.of()));
+
+        // Call item: [to_address, value=0, input=callData]
+        List<RlpType> callItems = new ArrayList<>();
+        callItems.add(RlpString.create(toAddress));
+        callItems.add(RlpString.create(BigInteger.ZERO));
+        callItems.add(RlpString.create(callData));
+
+        List<RlpType> callsList = new ArrayList<>();
+        callsList.add(new RlpList(callItems));
+
+        // Transaction fields in Tempo order
+        List<RlpType> fields = new ArrayList<>();
+        fields.add(RlpString.create(BigInteger.valueOf(chainId)));   // chain_id
+        fields.add(RlpString.create(gasPrice));                      // max_priority_fee_per_gas
+        fields.add(RlpString.create(gasPrice));                      // max_fee_per_gas
+        fields.add(RlpString.create(BigInteger.valueOf(5_000_000L)));// gas_limit
+        fields.add(new RlpList(callsList));                          // calls
+        fields.add(new RlpList(new ArrayList<>()));                  // access_list []
+        fields.add(RlpString.create(BigInteger.ZERO));               // nonce_key = 0
+        fields.add(RlpString.create(nonce));                         // nonce
+        fields.add(RlpString.create(new byte[]{}));                  // valid_before = None
+        fields.add(RlpString.create(new byte[]{}));                  // valid_after  = None
+        fields.add(RlpString.create(new byte[]{}));                  // fee_token    = None
+        fields.add(RlpString.create(new byte[]{}));                  // fee_payer_signature = None
+        fields.add(new RlpList(new ArrayList<>()));                  // tempo_auth_list []
+
+        // Signing input: 0x76 || RLP_list(fields)
+        // Sign.signMessage will keccak256-hash this before signing — matching Tempo's signature_hash()
+        byte[] rlpFields = RlpEncoder.encode(new RlpList(fields));
+        byte[] signingInput = new byte[1 + rlpFields.length];
+        signingInput[0] = (byte) 0x76;
+        System.arraycopy(rlpFields, 0, signingInput, 1, rlpFields.length);
+
+        Sign.SignatureData sigData = Sign.signMessage(signingInput, signer.getEcKeyPair());
+
+        // Signature: r(32) || s(32) || v(0 or 1)  — Tempo uses parity bit, not 27/28
+        byte[] sigBytes = new byte[65];
+        System.arraycopy(padTo32(sigData.getR()), 0, sigBytes, 0, 32);
+        System.arraycopy(padTo32(sigData.getS()), 0, sigBytes, 32, 32);
+        sigBytes[64] = (byte) (sigData.getV()[0] - 27);
+
+        // Signed transaction: fields + signature bytes appended as RLP byte string
+        List<RlpType> signedFields = new ArrayList<>(fields);
+        signedFields.add(RlpString.create(sigBytes));
+
+        byte[] rlpSigned = RlpEncoder.encode(new RlpList(signedFields));
+        byte[] signedTx = new byte[1 + rlpSigned.length];
+        signedTx[0] = (byte) 0x76;
+        System.arraycopy(rlpSigned, 0, signedTx, 1, rlpSigned.length);
+
+        return Numeric.toHexString(signedTx);
+    }
+
+    private static byte[] padTo32(byte[] bytes) {
+        if (bytes.length == 32) return bytes;
+        if (bytes.length > 32) return Arrays.copyOfRange(bytes, bytes.length - 32, bytes.length);
+        byte[] padded = new byte[32];
+        System.arraycopy(bytes, 0, padded, 32 - bytes.length, bytes.length);
+        return padded;
     }
 
     private BigInteger nextNonce() throws Exception {

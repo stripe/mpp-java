@@ -102,7 +102,7 @@ class TempoIntegrationTest {
     /** Full 402 → payment → verified roundtrip at the SDK level, no HTTP server needed. */
     @Test
     void fullMppRoundTrip() throws Exception {
-        TempoMethod tempo  = Tempo.method(rpcUrl, "local-dev");
+        TempoMethod tempo  = Tempo.method(rpcUrl, (int) chainId);
         MppHandler  server = Mpp.create(tempo, "localhost", "test-secret");
 
         // Step 1: no auth → server issues challenge
@@ -130,7 +130,7 @@ class TempoIntegrationTest {
     /** A tampered challenge ID is rejected and a fresh challenge is re-issued. */
     @Test
     void tamperedChallengeIsRejected() throws Exception {
-        TempoMethod tempo  = Tempo.method(rpcUrl, "local-dev");
+        TempoMethod tempo  = Tempo.method(rpcUrl, (int) chainId);
         MppHandler  server = Mpp.create(tempo, "localhost", "test-secret");
 
         VerifyResult r1 = server.charge(null, tempo.chargeIntent(), "0.010000", "USDC", RECIPIENT);

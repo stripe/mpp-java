@@ -59,13 +59,13 @@ public final class Tempo {
     }
 
     /**
-     * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain identifier.
+     * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain ID.
      * Useful for local development nodes or private networks.
      *
-     * @param rpcUrl JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
-     * @param chain  chain identifier included in MPP challenges (e.g. {@code "eip155:1337"})
+     * @param rpcUrl  JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
+     * @param chainId numeric EVM chain ID (e.g. {@code 1337})
      */
-    public static TempoMethod method(String rpcUrl, String chain) {
-        return new TempoMethod(rpcUrl, chain);
+    public static TempoMethod method(String rpcUrl, int chainId) {
+        return new TempoMethod(rpcUrl, chainId);
     }
 }

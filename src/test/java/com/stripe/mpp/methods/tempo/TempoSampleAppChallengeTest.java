@@ -38,7 +38,7 @@ class TempoSampleAppChallengeTest {
         // No top-level "chain" field — matches climate.stripe.dev reference format
         assertThat(request).doesNotContainKey("chain");
         // Canonical integer form read by purl and mppx TypeScript SDK
-        assertThat(((Map<?, ?>) request.get("methodDetails")).get("chainId")).isEqualTo(4217L);
+        assertThat(((Map<?, ?>) request.get("methodDetails")).get("chainId")).isEqualTo(4217);
     }
 
     @Test
@@ -61,6 +61,6 @@ class TempoSampleAppChallengeTest {
 
         Map<String, Object> request = ((VerifyResult.Challenged) result).challenge().request();
         assertThat(request).doesNotContainKey("chain");
-        assertThat(((Map<?, ?>) request.get("methodDetails")).get("chainId")).isEqualTo(42431L);
+        assertThat(((Map<?, ?>) request.get("methodDetails")).get("chainId")).isEqualTo(42431);
     }
 }

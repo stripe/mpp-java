@@ -27,32 +27,35 @@ import java.util.Map;
  */
 public class TempoMethod implements Method {
     private final String rpcUrl;
-    private final String chain;
+    private final int chainId;
     private final int decimals;
     private final TempoChargeIntent chargeIntent;
 
-    TempoMethod(String rpcUrl, String chain) {
-        this(rpcUrl, chain, TempoDefaults.DEFAULT_DECIMALS);
+    TempoMethod(String rpcUrl, int chainId) {
+        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS);
     }
 
-    TempoMethod(String rpcUrl, String chain, int decimals) {
+    TempoMethod(String rpcUrl, int chainId, int decimals) {
         this.rpcUrl = rpcUrl;
-        this.chain = chain;
+        this.chainId = chainId;
         this.decimals = decimals;
         this.chargeIntent = new TempoChargeIntent(rpcUrl);
     }
 
     static TempoMethod mainnet() {
-        return new TempoMethod(TempoDefaults.MAINNET_RPC, TempoDefaults.MAINNET_CHAIN);
+        return new TempoMethod(TempoDefaults.MAINNET_RPC, TempoDefaults.MAINNET_CHAIN_ID);
     }
 
     static TempoMethod testnet() {
-        return new TempoMethod(TempoDefaults.TESTNET_RPC, TempoDefaults.TESTNET_CHAIN);
+        return new TempoMethod(TempoDefaults.TESTNET_RPC, TempoDefaults.TESTNET_CHAIN_ID);
     }
 
-    @Override public String name()  { return "tempo"; }
-    @Override public String chain() { return chain; }
+    @Override public String name() { return "tempo"; }
+
+    public int chainId() { return chainId; }
     public String rpcUrl() { return rpcUrl; }
+    /** Returns the CAIP-2 network string (e.g. {@code "eip155:4217"}) for display purposes. */
+    public String network() { return "eip155:" + chainId; }
 
     @Override
     public List<Class<? extends Intent>> intents() {
@@ -63,9 +66,8 @@ public class TempoMethod implements Method {
     public TempoChargeIntent chargeIntent() { return chargeIntent; }
 
     /**
-     * Converts the decimal amount string to atomic (integer) units before embedding it in the
-     * challenge. Tempo clients parse the challenge amount as a U256 integer, so passing a decimal
-     * like "0.010000" would cause an "invalid digit" parse error on the client side.
+     * Converts the decimal amount to atomic units and injects {@code methodDetails.chainId}
+     * — the canonical format expected by purl and the mppx TypeScript SDK.
      */
     @Override
     public Map<String, Object> transformRequest(Map<String, Object> request) {
@@ -79,18 +81,7 @@ public class TempoMethod implements Method {
                 .toString();
             Map<String, Object> result = new LinkedHashMap<>(request);
             result.put("amount", atomic);
-
-            // Replace top-level "chain" (CAIP-2 string) with methodDetails.chainId
-            // (integer) — the canonical format used by the mppx TypeScript SDK and
-            // expected by purl. See: climate.stripe.dev reference implementation.
-            String chainVal = (String) result.remove("chain");
-            if (chainVal != null && chainVal.startsWith("eip155:")) {
-                try {
-                    long chainId = Long.parseLong(chainVal.substring("eip155:".length()));
-                    result.put("methodDetails", Map.of("chainId", chainId));
-                } catch (NumberFormatException ignored) {}
-            }
-
+            result.put("methodDetails", Map.of("chainId", chainId));
             return result;
         } catch (Exception e) {
             throw new IllegalArgumentException("invalid amount: " + amount, e);

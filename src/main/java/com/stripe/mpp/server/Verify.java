@@ -4,6 +4,7 @@ import com.stripe.mpp.Challenge;
 import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.ChallengeId;
 import com.stripe.mpp.Credential;
+import com.stripe.mpp.Json;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.ParseException;
 import com.stripe.mpp.error.PaymentException;
@@ -87,14 +88,14 @@ public final class Verify {
         // Verify echoed request matches expected request. Compare via canonical JSON
         // rather than Java object equality to avoid Integer vs Long mismatches that
         // arise when Jackson deserializes numeric values from the echoed base64 request.
-        if (!com.stripe.mpp.Json.compact(echoRequest).equals(com.stripe.mpp.Json.compact(request))) {
+        if (!Json.compact(echoRequest).equals(Json.compact(request))) {
             return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
         }
 
         // Verify echoed meta/opaque matches
         if (echoOpaque != null || meta != null) {
-            String echoOpaqueJson = com.stripe.mpp.Json.compact(echoOpaque != null ? echoOpaque : Map.of());
-            String metaJson = com.stripe.mpp.Json.compact(meta != null ? meta : Map.of());
+            String echoOpaqueJson = Json.compact(echoOpaque != null ? echoOpaque : Map.of());
+            String metaJson = Json.compact(meta != null ? meta : Map.of());
             if (!echoOpaqueJson.equals(metaJson)) {
                 return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
             }

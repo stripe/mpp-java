@@ -9,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TempoMethodTest {
 
-    static final TempoMethod METHOD = new TempoMethod("http://rpc.example.com", "eip155:1");
+    static final TempoMethod METHOD = new TempoMethod("http://rpc.example.com", 1);
 
     @Test
     void convertsDecimalAmountToAtomicUnits() {
@@ -28,14 +28,14 @@ class TempoMethodTest {
     }
 
     @Test
-    void convertsChainToMethodDetails() {
+    void injectsMethodDetailsChainId() {
         Map<String, Object> result = METHOD.transformRequest(
-            Map.of("amount", "1.000000", "currency", "USDC", "recipient", "0xABC", "chain", "eip155:1")
+            Map.of("amount", "1.000000", "currency", "USDC", "recipient", "0xABC")
         );
         assertThat(result.get("currency")).isEqualTo("USDC");
         assertThat(result.get("recipient")).isEqualTo("0xABC");
         assertThat(result).doesNotContainKey("chain");
-        assertThat(((Map<?, ?>) result.get("methodDetails")).get("chainId")).isEqualTo(1L);
+        assertThat(((Map<?, ?>) result.get("methodDetails")).get("chainId")).isEqualTo(1);
     }
 
     @Test

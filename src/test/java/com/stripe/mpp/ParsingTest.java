@@ -54,24 +54,27 @@ class ParsingTest {
         Challenge challenge = Challenge.create("secret", "example.com", "tempo", "charge", request,
             "2099-01-01T00:00:00Z", null, null);
 
-        Map<String, Object> payload = Map.of("tx", "0xTxHash");
-        Credential original = new Credential(challenge.toEcho(), payload, null);
+        Map<String, Object> payload = Map.of("type", "transaction", "signature", "0xTxHash");
+        Credential original = new Credential(challenge.toEcho(), payload, "did:pkh:eip155:1:0xABC");
 
         String authHeader = original.toAuthorization();
         assertThat(authHeader).startsWith("Payment ");
-        assertThat(authHeader).contains("payload=");
+        // New format: single base64-JSON token — no auth-params key=value syntax
+        assertThat(authHeader).doesNotContain("payload=");
 
         Credential parsed = Credential.fromAuthorization(authHeader);
         assertThat(parsed.challenge().id()).isEqualTo(challenge.id());
         assertThat(parsed.challenge().realm()).isEqualTo("example.com");
         assertThat(parsed.challenge().method()).isEqualTo("tempo");
         assertThat(parsed.challenge().intent()).isEqualTo("charge");
+        assertThat(parsed.source()).isEqualTo("did:pkh:eip155:1:0xABC");
     }
 
     @Test
     void credentialParseFailsOnMissingPayload() {
-        // Malformed header missing the payload field
-        String bad = "Payment id=\"abc\", realm=\"r\", method=\"m\", intent=\"i\", request=\"eyJ9\"";
+        // base64-JSON envelope with challenge but no payload field
+        String json = "{\"challenge\":{\"id\":\"abc\",\"realm\":\"r\",\"method\":\"m\",\"intent\":\"i\"}}";
+        String bad = "Payment " + ChallengeId.b64urlEncode(json);
         assertThatThrownBy(() -> Credential.fromAuthorization(bad))
             .isInstanceOf(com.stripe.mpp.error.ParseException.class)
             .hasMessageContaining("payload");

@@ -22,11 +22,11 @@ class TempoChargeIntentTest {
     );
 
     static Credential txCredential(String rawTx) {
-        return new Credential(ECHO, Map.of("transaction", rawTx), null);
+        return new Credential(ECHO, Map.of("type", "transaction", "signature", rawTx), null);
     }
 
     static Credential hashCredential(String txHash) {
-        return new Credential(ECHO, Map.of("hash", txHash), null);
+        return new Credential(ECHO, Map.of("type", "hash", "hash", txHash), null);
     }
 
     // --- Stub RPC ---
@@ -105,7 +105,7 @@ class TempoChargeIntentTest {
 
     @Test
     void unknownPayloadTypeThrows() {
-        Credential bad = new Credential(ECHO, Map.of("proof", "0xsig"), null);
+        Credential bad = new Credential(ECHO, Map.of("type", "proof", "proof", "0xsig"), null);
 
         assertThatThrownBy(() -> intent(new StubRpc(null, null, 0)).verify(bad, REQUEST))
             .isInstanceOf(VerificationFailedException.class)

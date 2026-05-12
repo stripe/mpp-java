@@ -61,15 +61,16 @@ public class TempoChargeIntent implements Intent {
         }
         Map<String, Object> payload = (Map<String, Object>) credential.payload();
 
-        if (payload.containsKey("transaction")) {
+        String type = (String) payload.get("type");
+        if ("transaction".equals(type)) {
             // Pull: client signed the tx, server broadcasts it.
-            return verifyTransaction((String) payload.get("transaction"));
+            return verifyTransaction((String) payload.get("signature"));
         }
-        if (payload.containsKey("hash")) {
+        if ("hash".equals(type)) {
             // Push: client already broadcast, server just verifies the receipt.
             return verifyHash((String) payload.get("hash"));
         }
-        throw new VerificationFailedException("unrecognized payload type");
+        throw new VerificationFailedException("unrecognized payload type: " + type);
     }
 
     private Receipt verifyTransaction(String rawTx) {

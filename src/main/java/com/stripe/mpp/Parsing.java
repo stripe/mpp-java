@@ -84,48 +84,65 @@ final class Parsing {
 
     // --- Authorization (Credential) ---
 
+    @SuppressWarnings("unchecked")
     static Credential parseAuthorization(String header) {
-        String schemePart = stripScheme(header, "payment ");
-        Map<String, String> params = parseAuthParams(schemePart);
+        String token = stripScheme(header, "payment ");
+
+        Map<String, Object> envelope = b64DecodeToMap(token);
+
+        Object challengeObj = envelope.get("challenge");
+        if (!(challengeObj instanceof Map)) throw new ParseException("Credential missing required field: challenge");
+        Map<String, Object> challengeMap = (Map<String, Object>) challengeObj;
+
+        if (!challengeMap.containsKey("id")) throw new ParseException("Credential challenge missing required field: id");
 
         Map<String, Object> opaque = null;
-        String opaqueVal = params.get("opaque");
-        if (opaqueVal != null && !opaqueVal.isEmpty()) {
-            opaque = b64DecodeToMap(opaqueVal);
+        if (challengeMap.get("opaque") instanceof Map) {
+            opaque = (Map<String, Object>) challengeMap.get("opaque");
         }
 
         ChallengeEcho echo = new ChallengeEcho(
-            params.get("id"),
-            params.get("realm"),
-            params.get("method"),
-            params.get("intent"),
-            params.get("request"),
-            params.get("expires"),
-            params.get("digest"),
+            str(challengeMap, "id"),
+            str(challengeMap, "realm"),
+            str(challengeMap, "method"),
+            str(challengeMap, "intent"),
+            str(challengeMap, "request"),
+            str(challengeMap, "expires"),
+            str(challengeMap, "digest"),
             opaque
         );
 
-        String payloadB64 = params.get("payload");
-        if (payloadB64 == null) throw new ParseException("Missing payload");
-        if (payloadB64.length() > MAX_PAYLOAD_SIZE) throw new ParseException("Payload exceeds maximum size");
+        Object payload = envelope.get("payload");
+        if (payload == null) throw new ParseException("Credential missing required field: payload");
 
-        Object payload = b64Decode(payloadB64);
-        return new Credential(echo, payload, header);
+        String source = envelope.get("source") instanceof String ? (String) envelope.get("source") : header;
+        return new Credential(echo, payload, source);
+    }
+
+    private static String str(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        return v != null ? v.toString() : null;
     }
 
     static String formatAuthorization(Credential credential) {
         ChallengeEcho echo = credential.challenge();
-        List<String> parts = new ArrayList<>();
-        parts.add("id=" + quote(echo.id()));
-        parts.add("realm=" + quote(echo.realm()));
-        parts.add("method=" + quote(echo.method()));
-        parts.add("intent=" + quote(echo.intent()));
-        parts.add("request=" + quote(echo.request()));
-        parts.add("payload=" + quote(b64Encode(credential.payload())));
-        if (echo.expires() != null) parts.add("expires=" + quote(echo.expires()));
-        if (echo.digest() != null)  parts.add("digest=" + quote(echo.digest()));
-        if (echo.opaque() != null)  parts.add("opaque=" + quote(b64Encode(echo.opaque())));
-        return "Payment " + String.join(", ", parts);
+
+        Map<String, Object> challengeMap = new java.util.LinkedHashMap<>();
+        challengeMap.put("id", echo.id());
+        challengeMap.put("realm", echo.realm());
+        challengeMap.put("method", echo.method());
+        challengeMap.put("intent", echo.intent());
+        challengeMap.put("request", echo.request());
+        if (echo.expires() != null) challengeMap.put("expires", echo.expires());
+        if (echo.digest() != null)  challengeMap.put("digest", echo.digest());
+        if (echo.opaque() != null)  challengeMap.put("opaque", echo.opaque());
+
+        Map<String, Object> envelope = new java.util.LinkedHashMap<>();
+        envelope.put("challenge", challengeMap);
+        envelope.put("payload", credential.payload());
+        if (credential.source() != null) envelope.put("source", credential.source());
+
+        return "Payment " + b64Encode(envelope);
     }
 
     // --- Payment-Receipt ---

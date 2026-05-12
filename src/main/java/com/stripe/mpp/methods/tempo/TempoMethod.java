@@ -3,7 +3,11 @@ package com.stripe.mpp.methods.tempo;
 import com.stripe.mpp.server.Intent;
 import com.stripe.mpp.server.Method;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * MPP payment method for Tempo. Obtain instances via {@link Tempo#method()}.
@@ -23,10 +27,16 @@ import java.util.List;
  */
 public class TempoMethod implements Method {
     private final String chain;
+    private final int decimals;
     private final TempoChargeIntent chargeIntent;
 
     TempoMethod(String rpcUrl, String chain) {
+        this(rpcUrl, chain, TempoDefaults.DEFAULT_DECIMALS);
+    }
+
+    TempoMethod(String rpcUrl, String chain, int decimals) {
         this.chain = chain;
+        this.decimals = decimals;
         this.chargeIntent = new TempoChargeIntent(rpcUrl);
     }
 
@@ -48,4 +58,27 @@ public class TempoMethod implements Method {
 
     /** Returns the pre-configured charge intent to pass to {@link com.stripe.mpp.server.MppHandler#charge}. */
     public TempoChargeIntent chargeIntent() { return chargeIntent; }
+
+    /**
+     * Converts the decimal amount string to atomic (integer) units before embedding it in the
+     * challenge. Tempo clients parse the challenge amount as a U256 integer, so passing a decimal
+     * like "0.010000" would cause an "invalid digit" parse error on the client side.
+     */
+    @Override
+    public Map<String, Object> transformRequest(Map<String, Object> request) {
+        String amount = (String) request.get("amount");
+        if (amount == null) return request;
+        try {
+            String atomic = new BigDecimal(amount)
+                .multiply(BigDecimal.TEN.pow(decimals))
+                .setScale(0, RoundingMode.UNNECESSARY)
+                .toBigIntegerExact()
+                .toString();
+            Map<String, Object> result = new LinkedHashMap<>(request);
+            result.put("amount", atomic);
+            return result;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("invalid amount: " + amount, e);
+        }
+    }
 }

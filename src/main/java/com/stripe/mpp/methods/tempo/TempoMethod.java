@@ -79,6 +79,18 @@ public class TempoMethod implements Method {
                 .toString();
             Map<String, Object> result = new LinkedHashMap<>(request);
             result.put("amount", atomic);
+
+            // Also expose chain ID as methodDetails.chainId (integer) — the canonical
+            // format expected by purl and the mppx TypeScript SDK. The top-level "chain"
+            // CAIP-2 string is kept for backwards compatibility.
+            String chainVal = (String) request.get("chain");
+            if (chainVal != null && chainVal.startsWith("eip155:")) {
+                try {
+                    long chainId = Long.parseLong(chainVal.substring("eip155:".length()));
+                    result.put("methodDetails", Map.of("chainId", chainId));
+                } catch (NumberFormatException ignored) {}
+            }
+
             return result;
         } catch (Exception e) {
             throw new IllegalArgumentException("invalid amount: " + amount, e);

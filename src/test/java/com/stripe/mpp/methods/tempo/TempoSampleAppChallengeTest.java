@@ -35,7 +35,10 @@ class TempoSampleAppChallengeTest {
         assertThat(result).isInstanceOf(VerifyResult.Challenged.class);
         Map<String, Object> request = ((VerifyResult.Challenged) result).challenge().request();
 
+        // Top-level CAIP-2 string (backwards compat)
         assertThat(request.get("chain")).isEqualTo("eip155:4217");
+        // Canonical integer form read by purl and mppx TypeScript SDK
+        assertThat(((Map<?, ?>) request.get("methodDetails")).get("chainId")).isEqualTo(4217L);
     }
 
     @Test

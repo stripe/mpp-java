@@ -25,7 +25,7 @@ public class TempoMethod implements Method {
     private final String chain;
     private final TempoChargeIntent chargeIntent;
 
-    private TempoMethod(String rpcUrl, String chain) {
+    TempoMethod(String rpcUrl, String chain) {
         this.chain = chain;
         this.chargeIntent = new TempoChargeIntent(rpcUrl);
     }

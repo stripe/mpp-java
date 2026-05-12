@@ -27,11 +27,37 @@ dependencies {
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
     testImplementation 'org.assertj:assertj-core:3.26.0'
+    testImplementation 'org.web3j:crypto:4.9.8'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 test {
     useJUnitPlatform()
+}
+
+// --- Integration test source set ---
+
+sourceSets {
+    integrationTest {
+        java.srcDir 'src/integrationTest/java'
+        compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs integration tests against a live Tempo node (requires docker compose up).'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    useJUnitPlatform()
+    systemProperty 'tempo.rpc.url', System.getenv('TEMPO_RPC_URL') ?: 'http://localhost:8545'
+    shouldRunAfter test
 }
 
 publishing {

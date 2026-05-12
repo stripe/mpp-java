@@ -47,4 +47,25 @@ public final class Tempo {
     public static TempoChargeIntent chargeIntent(boolean testnet) {
         return new TempoChargeIntent(testnet ? TempoDefaults.TESTNET_RPC : TempoDefaults.MAINNET_RPC);
     }
+
+    /**
+     * Returns a {@link TempoChargeIntent} pointed at a custom RPC URL.
+     * Useful for local development nodes or private networks.
+     *
+     * @param rpcUrl JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
+     */
+    public static TempoChargeIntent chargeIntent(String rpcUrl) {
+        return new TempoChargeIntent(rpcUrl);
+    }
+
+    /**
+     * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain identifier.
+     * Useful for local development nodes or private networks.
+     *
+     * @param rpcUrl JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
+     * @param chain  chain identifier included in MPP challenges (e.g. {@code "eip155:1337"})
+     */
+    public static TempoMethod method(String rpcUrl, String chain) {
+        return new TempoMethod(rpcUrl, chain);
+    }
 }

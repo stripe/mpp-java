@@ -26,6 +26,7 @@ import java.util.Map;
  * }</pre>
  */
 public class TempoMethod implements Method {
+    private final String rpcUrl;
     private final String chain;
     private final int decimals;
     private final TempoChargeIntent chargeIntent;
@@ -35,6 +36,7 @@ public class TempoMethod implements Method {
     }
 
     TempoMethod(String rpcUrl, String chain, int decimals) {
+        this.rpcUrl = rpcUrl;
         this.chain = chain;
         this.decimals = decimals;
         this.chargeIntent = new TempoChargeIntent(rpcUrl);
@@ -50,6 +52,7 @@ public class TempoMethod implements Method {
 
     @Override public String name()  { return "tempo"; }
     @Override public String chain() { return chain; }
+    public String rpcUrl() { return rpcUrl; }
 
     @Override
     public List<Class<? extends Intent>> intents() {

@@ -84,14 +84,20 @@ public final class Verify {
             return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
         }
 
-        // Verify echoed request matches expected request
-        if (!echoRequest.equals(request)) {
+        // Verify echoed request matches expected request. Compare via canonical JSON
+        // rather than Java object equality to avoid Integer vs Long mismatches that
+        // arise when Jackson deserializes numeric values from the echoed base64 request.
+        if (!com.stripe.mpp.Json.compact(echoRequest).equals(com.stripe.mpp.Json.compact(request))) {
             return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
         }
 
         // Verify echoed meta/opaque matches
-        if (!Objects.deepEquals(echoOpaque, meta)) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+        if (echoOpaque != null || meta != null) {
+            String echoOpaqueJson = com.stripe.mpp.Json.compact(echoOpaque != null ? echoOpaque : Map.of());
+            String metaJson = com.stripe.mpp.Json.compact(meta != null ? meta : Map.of());
+            if (!echoOpaqueJson.equals(metaJson)) {
+                return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+            }
         }
 
         // Challenges must always have an expiry (fail closed)

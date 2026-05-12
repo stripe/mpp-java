@@ -28,13 +28,14 @@ class TempoMethodTest {
     }
 
     @Test
-    void preservesOtherFields() {
+    void convertsChainToMethodDetails() {
         Map<String, Object> result = METHOD.transformRequest(
             Map.of("amount", "1.000000", "currency", "USDC", "recipient", "0xABC", "chain", "eip155:1")
         );
         assertThat(result.get("currency")).isEqualTo("USDC");
         assertThat(result.get("recipient")).isEqualTo("0xABC");
-        assertThat(result.get("chain")).isEqualTo("eip155:1");
+        assertThat(result).doesNotContainKey("chain");
+        assertThat(((Map<?, ?>) result.get("methodDetails")).get("chainId")).isEqualTo(1L);
     }
 
     @Test

@@ -35,8 +35,8 @@ class TempoSampleAppChallengeTest {
         assertThat(result).isInstanceOf(VerifyResult.Challenged.class);
         Map<String, Object> request = ((VerifyResult.Challenged) result).challenge().request();
 
-        // Top-level CAIP-2 string (backwards compat)
-        assertThat(request.get("chain")).isEqualTo("eip155:4217");
+        // No top-level "chain" field — matches climate.stripe.dev reference format
+        assertThat(request).doesNotContainKey("chain");
         // Canonical integer form read by purl and mppx TypeScript SDK
         assertThat(((Map<?, ?>) request.get("methodDetails")).get("chainId")).isEqualTo(4217L);
     }
@@ -60,6 +60,7 @@ class TempoSampleAppChallengeTest {
         VerifyResult result = mpp.charge(null, tempo.chargeIntent(), AMOUNT, ASSET, RECIPIENT);
 
         Map<String, Object> request = ((VerifyResult.Challenged) result).challenge().request();
-        assertThat(request.get("chain")).isEqualTo("eip155:42431");
+        assertThat(request).doesNotContainKey("chain");
+        assertThat(((Map<?, ?>) request.get("methodDetails")).get("chainId")).isEqualTo(42431L);
     }
 }

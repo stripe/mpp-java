@@ -88,8 +88,8 @@ class ParsingTest {
             "ref-123", "tempo", "ext-456", null);
 
         String header = original.toPaymentReceipt();
-        assertThat(header).startsWith("Payment-Receipt ");
-        // Header is a base64url token — no raw field values visible
+        // Value is a bare base64url token — no scheme prefix, no quotes
+        assertThat(header).doesNotContain(" ");
         assertThat(header).doesNotContain("\"");
 
         Receipt parsed = Receipt.fromPaymentReceipt(header);

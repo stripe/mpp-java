@@ -186,7 +186,7 @@ final class Parsing {
             map.put("external_id", receipt.externalId());
         if (receipt.extra() != null)
             map.put("extra", receipt.extra());
-        return "Payment-Receipt " + b64Encode(map);
+        return b64Encode(map);
     }
 
     // --- Helpers ---

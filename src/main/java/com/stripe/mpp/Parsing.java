@@ -147,14 +147,15 @@ final class Parsing {
 
     // --- Payment-Receipt ---
 
+    @SuppressWarnings("unchecked")
     static Receipt parsePaymentReceipt(String header) {
-        String schemePart = stripScheme(header, "payment-receipt ");
-        Map<String, String> params = parseAuthParams(schemePart);
+        String token = stripScheme(header, "payment-receipt ");
+        Map<String, Object> map = b64DecodeToMap(token);
 
-        String status = params.get("status");
+        String status = str(map, "status");
         if (status == null) throw new ParseException("Missing status");
 
-        String timestampStr = params.get("timestamp");
+        String timestampStr = str(map, "timestamp");
         if (timestampStr == null) throw new ParseException("Missing timestamp");
         Instant timestamp;
         try {
@@ -163,32 +164,29 @@ final class Parsing {
             throw new ParseException("Invalid timestamp format: " + timestampStr);
         }
 
-        String reference = params.get("reference");
+        String reference = str(map, "reference");
         if (reference == null) throw new ParseException("Missing reference");
 
-        String method = params.getOrDefault("method", "");
+        String method = str(map, "method");
+        if (method == null) method = "";
 
-        Object extra = null;
-        String extraVal = params.get("extra");
-        if (extraVal != null && !extraVal.isEmpty()) {
-            extra = b64Decode(extraVal);
-        }
+        Object extra = map.get("extra");
 
-        return new Receipt(status, timestamp, reference, method, params.get("external_id"), extra);
+        return new Receipt(status, timestamp, reference, method, str(map, "external_id"), extra);
     }
 
     static String formatPaymentReceipt(Receipt receipt) {
-        List<String> parts = new ArrayList<>();
-        parts.add("status=" + quote(receipt.status()));
-        parts.add("timestamp=" + quote(receipt.timestampIso8601()));
-        parts.add("reference=" + quote(receipt.reference()));
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("status", receipt.status());
+        map.put("timestamp", receipt.timestampIso8601());
+        map.put("reference", receipt.reference());
         if (receipt.method() != null && !receipt.method().isEmpty())
-            parts.add("method=" + quote(receipt.method()));
+            map.put("method", receipt.method());
         if (receipt.externalId() != null)
-            parts.add("external_id=" + quote(receipt.externalId()));
+            map.put("external_id", receipt.externalId());
         if (receipt.extra() != null)
-            parts.add("extra=" + quote(b64Encode(receipt.extra())));
-        return "Payment-Receipt " + String.join(", ", parts);
+            map.put("extra", receipt.extra());
+        return "Payment-Receipt " + b64Encode(map);
     }
 
     // --- Helpers ---

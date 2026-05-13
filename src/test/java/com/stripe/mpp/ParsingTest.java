@@ -89,10 +89,8 @@ class ParsingTest {
 
         String header = original.toPaymentReceipt();
         assertThat(header).startsWith("Payment-Receipt ");
-        assertThat(header).contains("status=\"success\"");
-        assertThat(header).contains("reference=\"ref-123\"");
-        assertThat(header).contains("method=\"tempo\"");
-        assertThat(header).contains("external_id=\"ext-456\"");
+        // Header is a base64url token — no raw field values visible
+        assertThat(header).doesNotContain("\"");
 
         Receipt parsed = Receipt.fromPaymentReceipt(header);
         assertThat(parsed.status()).isEqualTo("success");

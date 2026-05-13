@@ -39,6 +39,10 @@ public class TempoChargeIntent implements Intent {
         this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc());
     }
 
+    public TempoChargeIntent(String rpcUrl, boolean debug) {
+        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc(debug));
+    }
+
     TempoChargeIntent(String rpcUrl, TempoRpc rpc) {
         this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, rpc);
     }

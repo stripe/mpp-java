@@ -32,22 +32,38 @@ public class TempoMethod implements Method {
     private final TempoChargeIntent chargeIntent;
 
     TempoMethod(String rpcUrl, int chainId) {
-        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS);
+        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, false);
+    }
+
+    TempoMethod(String rpcUrl, int chainId, boolean debug) {
+        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, debug);
     }
 
     TempoMethod(String rpcUrl, int chainId, int decimals) {
+        this(rpcUrl, chainId, decimals, false);
+    }
+
+    TempoMethod(String rpcUrl, int chainId, int decimals, boolean debug) {
         this.rpcUrl = rpcUrl;
         this.chainId = chainId;
         this.decimals = decimals;
-        this.chargeIntent = new TempoChargeIntent(rpcUrl);
+        this.chargeIntent = new TempoChargeIntent(rpcUrl, debug);
     }
 
     static TempoMethod mainnet() {
         return new TempoMethod(TempoDefaults.MAINNET_RPC, TempoDefaults.MAINNET_CHAIN_ID);
     }
 
+    static TempoMethod mainnet(boolean debug) {
+        return new TempoMethod(TempoDefaults.MAINNET_RPC, TempoDefaults.MAINNET_CHAIN_ID, debug);
+    }
+
     static TempoMethod testnet() {
         return new TempoMethod(TempoDefaults.TESTNET_RPC, TempoDefaults.TESTNET_CHAIN_ID);
+    }
+
+    static TempoMethod testnet(boolean debug) {
+        return new TempoMethod(TempoDefaults.TESTNET_RPC, TempoDefaults.TESTNET_CHAIN_ID, debug);
     }
 
     @Override public String name() { return "tempo"; }

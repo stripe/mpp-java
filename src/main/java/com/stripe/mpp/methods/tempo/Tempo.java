@@ -34,6 +34,17 @@ public final class Tempo {
         return testnet ? TempoMethod.testnet() : TempoMethod.mainnet();
     }
 
+    /**
+     * Returns a {@link TempoMethod} configured for Tempo mainnet or testnet (Moderato), with
+     * optional debug logging of raw JSON-RPC request/response bodies.
+     *
+     * @param testnet {@code true} for Moderato testnet, {@code false} for mainnet
+     * @param debug   {@code true} to log raw RPC request/response bodies at INFO level
+     */
+    public static TempoMethod method(boolean testnet, boolean debug) {
+        return testnet ? TempoMethod.testnet(debug) : TempoMethod.mainnet(debug);
+    }
+
     /** Returns a {@link TempoChargeIntent} that submits payments on Tempo mainnet. */
     public static TempoChargeIntent chargeIntent() {
         return chargeIntent(false);
@@ -59,6 +70,19 @@ public final class Tempo {
     }
 
     /**
+     * Returns a {@link TempoChargeIntent} pointed at a custom RPC URL with optional debug logging.
+     * When {@code debug} is {@code true}, raw JSON-RPC request and response bodies are logged at
+     * INFO level via {@code java.util.logging} under the logger name
+     * {@code com.stripe.mpp.methods.tempo.TempoRpc}.
+     *
+     * @param rpcUrl JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
+     * @param debug  {@code true} to log raw RPC request/response bodies
+     */
+    public static TempoChargeIntent chargeIntent(String rpcUrl, boolean debug) {
+        return new TempoChargeIntent(rpcUrl, debug);
+    }
+
+    /**
      * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain ID.
      * Useful for local development nodes or private networks.
      *
@@ -67,5 +91,19 @@ public final class Tempo {
      */
     public static TempoMethod method(String rpcUrl, int chainId) {
         return new TempoMethod(rpcUrl, chainId);
+    }
+
+    /**
+     * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain ID with optional debug
+     * logging. When {@code debug} is {@code true}, raw JSON-RPC request and response bodies are
+     * logged at INFO level via {@code java.util.logging} under the logger name
+     * {@code com.stripe.mpp.methods.tempo.TempoRpc}.
+     *
+     * @param rpcUrl  JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
+     * @param chainId numeric EVM chain ID (e.g. {@code 1337})
+     * @param debug   {@code true} to log raw RPC request/response bodies
+     */
+    public static TempoMethod method(String rpcUrl, int chainId, boolean debug) {
+        return new TempoMethod(rpcUrl, chainId, debug);
     }
 }

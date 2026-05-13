@@ -124,7 +124,7 @@ class TempoIntegrationTest {
 
         // Step 2: client builds a transaction and wraps it in a credential
         String rawTx = buildSignedTx(nextNonce(), BigInteger.valueOf(1_000L));
-        Credential credential = new Credential(challenge.toEcho(), Map.of("transaction", rawTx), null);
+        Credential credential = new Credential(challenge.toEcho(), Map.of("type", "transaction", "signature", rawTx), null);
 
         // Step 3: retry with the credential
         VerifyResult r2 = server.charge(
@@ -174,11 +174,11 @@ class TempoIntegrationTest {
     }
 
     private static Credential txCredential(String rawTx) {
-        return new Credential(stubEcho(), Map.of("transaction", rawTx), null);
+        return new Credential(stubEcho(), Map.of("type", "transaction", "signature", rawTx), null);
     }
 
     private static Credential hashCredential(String txHash) {
-        return new Credential(stubEcho(), Map.of("hash", txHash), null);
+        return new Credential(stubEcho(), Map.of("type", "hash", "hash", txHash), null);
     }
 
     private static ChallengeEcho stubEcho() {

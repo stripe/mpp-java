@@ -13,7 +13,7 @@ package com.stripe.mpp.methods.tempo;
  * VerifyResult result = server.charge(
  *     request.getHeader("Authorization"),
  *     Tempo.chargeIntent(),
- *     "10.000000", "USDC", "0xRecipient"
+ *     "10.000000", TempoDefaults.MAINNET_USDC, "0xRecipient"
  * );
  * }</pre>
  */

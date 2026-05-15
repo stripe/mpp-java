@@ -10,19 +10,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * MPP payment method for Tempo. Obtain instances via {@link Tempo#method()}.
+ * MPP payment method for Tempo.
  *
  * <pre>{@code
- * TempoMethod tempo = Tempo.method();          // mainnet
- * TempoMethod tempo = Tempo.method(true);      // testnet (Moderato)
- *
- * MppHandler server = Mpp.create(tempo, "api.example.com", secretKey);
- *
- * VerifyResult result = server.charge(
- *     request.getHeader("Authorization"),
- *     tempo.chargeIntent(),
- *     "10.000000", "USDC", "0xRecipient"
- * );
+ * TempoMethod tempo = TempoMethod.mainnet().build();
+ * TempoMethod tempo = TempoMethod.testnet().build();
+ * TempoMethod tempo = TempoMethod.testnet().debug().build();
+ * TempoMethod tempo = TempoMethod.custom("http://localhost:8545", 1337).build();
  * }</pre>
  */
 public class TempoMethod implements Method {
@@ -50,20 +44,37 @@ public class TempoMethod implements Method {
         this.chargeIntent = new TempoChargeIntent(rpcUrl, debug);
     }
 
-    static TempoMethod mainnet() {
-        return new TempoMethod(TempoDefaults.MAINNET_RPC, TempoDefaults.MAINNET_CHAIN_ID);
+    /** Starts a builder targeting Tempo mainnet (chain 4217). */
+    public static Builder mainnet() {
+        return new Builder(TempoDefaults.MAINNET_RPC, TempoDefaults.MAINNET_CHAIN_ID);
     }
 
-    static TempoMethod mainnet(boolean debug) {
-        return new TempoMethod(TempoDefaults.MAINNET_RPC, TempoDefaults.MAINNET_CHAIN_ID, debug);
+    /** Starts a builder targeting Tempo testnet / Moderato (chain 42431). */
+    public static Builder testnet() {
+        return new Builder(TempoDefaults.TESTNET_RPC, TempoDefaults.TESTNET_CHAIN_ID);
     }
 
-    static TempoMethod testnet() {
-        return new TempoMethod(TempoDefaults.TESTNET_RPC, TempoDefaults.TESTNET_CHAIN_ID);
+    /** Starts a builder targeting a custom RPC endpoint and chain ID. */
+    public static Builder custom(String rpcUrl, int chainId) {
+        return new Builder(rpcUrl, chainId);
     }
 
-    static TempoMethod testnet(boolean debug) {
-        return new TempoMethod(TempoDefaults.TESTNET_RPC, TempoDefaults.TESTNET_CHAIN_ID, debug);
+    public static final class Builder {
+        private final String rpcUrl;
+        private final int chainId;
+        private boolean debug = false;
+
+        private Builder(String rpcUrl, int chainId) {
+            this.rpcUrl  = rpcUrl;
+            this.chainId = chainId;
+        }
+
+        /** Enables INFO-level logging of raw JSON-RPC request/response bodies. */
+        public Builder debug() { this.debug = true; return this; }
+
+        public TempoMethod build() {
+            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, debug);
+        }
     }
 
     @Override public String name() { return "tempo"; }

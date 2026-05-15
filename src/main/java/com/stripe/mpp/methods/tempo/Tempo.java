@@ -3,51 +3,67 @@ package com.stripe.mpp.methods.tempo;
 /**
  * Factory for Tempo payment objects.
  *
+ * <p>Prefer the named builders on {@link TempoMethod} directly:
+ *
  * <pre>{@code
- * TempoMethod tempo = Tempo.method();                  // mainnet
- * TempoMethod tempo = Tempo.method(true);              // testnet (Moderato)
- *
- * MppHandler server = Mpp.create(tempo, "api.example.com", secretKey);
- *
- * // In your HTTP handler:
- * VerifyResult result = server.charge(
- *     request.getHeader("Authorization"),
- *     Tempo.chargeIntent(),
- *     "10.000000", TempoDefaults.MAINNET_USDC, "0xRecipient"
- * );
+ * TempoMethod tempo = TempoMethod.testnet().build();
+ * TempoMethod tempo = TempoMethod.mainnet().debug().build();
+ * TempoMethod tempo = TempoMethod.custom("http://localhost:8545", 1337).build();
  * }</pre>
+ *
+ * <p>The static helpers here are kept for backwards compatibility.
  */
 public final class Tempo {
     private Tempo() {}
 
-    /** Returns a {@link TempoMethod} from a {@link TempoConfig} builder. */
-    public static TempoMethod method(TempoConfig config) {
-        return config.build();
-    }
-
     /** Returns a {@link TempoMethod} configured for Tempo mainnet. */
     public static TempoMethod method() {
-        return method(false);
+        return TempoMethod.mainnet().build();
     }
 
     /**
-     * Returns a {@link TempoMethod} configured for Tempo mainnet or testnet (Moderato).
+     * Returns a {@link TempoMethod} for mainnet or testnet (Moderato).
      *
      * @param testnet {@code true} for Moderato testnet, {@code false} for mainnet
      */
     public static TempoMethod method(boolean testnet) {
-        return testnet ? TempoMethod.testnet() : TempoMethod.mainnet();
+        return (testnet ? TempoMethod.testnet() : TempoMethod.mainnet()).build();
     }
 
     /**
-     * Returns a {@link TempoMethod} configured for Tempo mainnet or testnet (Moderato), with
-     * optional debug logging of raw JSON-RPC request/response bodies.
+     * Returns a {@link TempoMethod} for mainnet or testnet, with optional debug logging.
      *
      * @param testnet {@code true} for Moderato testnet, {@code false} for mainnet
      * @param debug   {@code true} to log raw RPC request/response bodies at INFO level
      */
     public static TempoMethod method(boolean testnet, boolean debug) {
-        return testnet ? TempoMethod.testnet(debug) : TempoMethod.mainnet(debug);
+        TempoMethod.Builder b = testnet ? TempoMethod.testnet() : TempoMethod.mainnet();
+        if (debug) b.debug();
+        return b.build();
+    }
+
+    /**
+     * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain ID.
+     *
+     * @param rpcUrl  JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
+     * @param chainId numeric EVM chain ID (e.g. {@code 1337})
+     */
+    public static TempoMethod method(String rpcUrl, int chainId) {
+        return TempoMethod.custom(rpcUrl, chainId).build();
+    }
+
+    /**
+     * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain ID, with optional
+     * debug logging.
+     *
+     * @param rpcUrl  JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
+     * @param chainId numeric EVM chain ID (e.g. {@code 1337})
+     * @param debug   {@code true} to log raw RPC request/response bodies
+     */
+    public static TempoMethod method(String rpcUrl, int chainId, boolean debug) {
+        TempoMethod.Builder b = TempoMethod.custom(rpcUrl, chainId);
+        if (debug) b.debug();
+        return b.build();
     }
 
     /** Returns a {@link TempoChargeIntent} that submits payments on Tempo mainnet. */
@@ -66,7 +82,6 @@ public final class Tempo {
 
     /**
      * Returns a {@link TempoChargeIntent} pointed at a custom RPC URL.
-     * Useful for local development nodes or private networks.
      *
      * @param rpcUrl JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
      */
@@ -76,39 +91,11 @@ public final class Tempo {
 
     /**
      * Returns a {@link TempoChargeIntent} pointed at a custom RPC URL with optional debug logging.
-     * When {@code debug} is {@code true}, raw JSON-RPC request and response bodies are logged at
-     * INFO level via {@code java.util.logging} under the logger name
-     * {@code com.stripe.mpp.methods.tempo.TempoRpc}.
      *
      * @param rpcUrl JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
      * @param debug  {@code true} to log raw RPC request/response bodies
      */
     public static TempoChargeIntent chargeIntent(String rpcUrl, boolean debug) {
         return new TempoChargeIntent(rpcUrl, debug);
-    }
-
-    /**
-     * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain ID.
-     * Useful for local development nodes or private networks.
-     *
-     * @param rpcUrl  JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
-     * @param chainId numeric EVM chain ID (e.g. {@code 1337})
-     */
-    public static TempoMethod method(String rpcUrl, int chainId) {
-        return new TempoMethod(rpcUrl, chainId);
-    }
-
-    /**
-     * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain ID with optional debug
-     * logging. When {@code debug} is {@code true}, raw JSON-RPC request and response bodies are
-     * logged at INFO level via {@code java.util.logging} under the logger name
-     * {@code com.stripe.mpp.methods.tempo.TempoRpc}.
-     *
-     * @param rpcUrl  JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
-     * @param chainId numeric EVM chain ID (e.g. {@code 1337})
-     * @param debug   {@code true} to log raw RPC request/response bodies
-     */
-    public static TempoMethod method(String rpcUrl, int chainId, boolean debug) {
-        return new TempoMethod(rpcUrl, chainId, debug);
     }
 }

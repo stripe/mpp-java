@@ -22,16 +22,11 @@ import java.util.Map;
 public final class Stripe {
     private Stripe() {}
 
-    /** Returns a {@link StripeMethod} from a {@link StripeConfig} builder. */
-    public static StripeMethod method(StripeConfig config) {
-        return config.build();
-    }
-
     /**
-     * Returns a {@link StripeMethod} with default USD / 2-decimal settings.
+     * Returns a {@link StripeMethod} with default settings.
      *
-     * @param secretKey     Stripe secret API key
-     * @param networkId     Stripe network identifier sent to the client in the challenge
+     * @param secretKey Stripe secret API key
+     * @param networkId Stripe profile/network identifier sent to the client in the challenge
      */
     public static StripeMethod method(String secretKey, String networkId) {
         return method(secretKey, networkId, null, null);

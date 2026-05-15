@@ -13,9 +13,8 @@ import java.util.Map;
  * MPP payment method for Tempo.
  *
  * <pre>{@code
- * TempoMethod tempo = TempoMethod.mainnet().build();
- * TempoMethod tempo = TempoMethod.testnet().build();
-
+ * TempoMethod tempo = TempoMethod.of().build();              // mainnet
+ * TempoMethod tempo = TempoMethod.of().testnet().build();    // testnet
  * TempoMethod tempo = TempoMethod.custom("http://localhost:8545", 1337).build();
  * }</pre>
  */
@@ -36,14 +35,9 @@ public class TempoMethod implements Method {
         this.chargeIntent = new TempoChargeIntent(rpcUrl, new TempoRpc());
     }
 
-    /** Starts a builder targeting Tempo mainnet (chain 4217). */
-    public static Builder mainnet() {
-        return new Builder(TempoDefaults.MAINNET_RPC, TempoDefaults.MAINNET_CHAIN_ID);
-    }
-
-    /** Starts a builder targeting Tempo testnet / Moderato (chain 42431). */
-    public static Builder testnet() {
-        return new Builder(TempoDefaults.TESTNET_RPC, TempoDefaults.TESTNET_CHAIN_ID);
+    /** Starts a builder defaulting to Tempo mainnet. Call {@link Builder#testnet()} to switch. */
+    public static Builder of() {
+        return new Builder();
     }
 
     /** Starts a builder targeting a custom RPC endpoint and chain ID. */
@@ -52,11 +46,21 @@ public class TempoMethod implements Method {
     }
 
     public static final class Builder {
-        private final String rpcUrl;
-        private final int chainId;
+        private String rpcUrl   = TempoDefaults.MAINNET_RPC;
+        private int    chainId  = TempoDefaults.MAINNET_CHAIN_ID;
+
+        private Builder() {}
+
         private Builder(String rpcUrl, int chainId) {
             this.rpcUrl  = rpcUrl;
             this.chainId = chainId;
+        }
+
+        /** Switches to Tempo testnet / Moderato (chain 42431). */
+        public Builder testnet() {
+            this.rpcUrl  = TempoDefaults.TESTNET_RPC;
+            this.chainId = TempoDefaults.TESTNET_CHAIN_ID;
+            return this;
         }
 
         public TempoMethod build() {

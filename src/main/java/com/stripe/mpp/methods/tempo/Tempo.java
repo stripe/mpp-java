@@ -6,8 +6,8 @@ package com.stripe.mpp.methods.tempo;
  * <p>Prefer the named builders on {@link TempoMethod} directly:
  *
  * <pre>{@code
- * TempoMethod tempo = TempoMethod.testnet().build();
- * TempoMethod tempo = TempoMethod.mainnet().build();
+ * TempoMethod tempo = TempoMethod.of().build();
+ * TempoMethod tempo = TempoMethod.of().testnet().build();
  * TempoMethod tempo = TempoMethod.custom("http://localhost:8545", 1337).build();
  * }</pre>
  *
@@ -18,7 +18,7 @@ public final class Tempo {
 
     /** Returns a {@link TempoMethod} configured for Tempo mainnet. */
     public static TempoMethod method() {
-        return TempoMethod.mainnet().build();
+        return TempoMethod.of().build();
     }
 
     /**
@@ -27,7 +27,9 @@ public final class Tempo {
      * @param testnet {@code true} for Moderato testnet, {@code false} for mainnet
      */
     public static TempoMethod method(boolean testnet) {
-        return (testnet ? TempoMethod.testnet() : TempoMethod.mainnet()).build();
+        TempoMethod.Builder b = TempoMethod.of();
+        if (testnet) b.testnet();
+        return b.build();
     }
 
     /**

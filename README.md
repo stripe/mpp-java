@@ -42,16 +42,10 @@ if (result instanceof VerifyResult.Challenged) {
 }
 ```
 
-The client presents a Tempo credential in `Authorization`:
+The endpoint can be tested using the [Tempo CLI](https://mpp.dev):
 
-```json
-{"transaction": "0x..."}
-```
-
-or, if already broadcast:
-
-```json
-{"hash": "0x..."}
+```sh
+tempo request https://your-api.com/your-endpoint
 ```
 
 ## Tempo + Stripe

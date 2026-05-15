@@ -21,7 +21,7 @@ on mainnet it is USDC.
 // Mainnet:  TempoDefaults.MAINNET_USDC     = "0x20C000000000000000000000b9537d11c60E8b50"
 String currency = TempoDefaults.TESTNET_PATH_USD;
 
-TempoMethod tempo = Tempo.method(true); // true = Moderato testnet
+TempoMethod tempo = TempoConfig.testnet().build();
 MppHandler mppHandler = Mpp.create(tempo, "api.example.com", System.getenv("MPP_SECRET_KEY"));
 
 // In your HTTP handler:
@@ -60,10 +60,10 @@ or, if already broadcast:
 which Stripe profile to pay. Use your Stripe profile or network ID (e.g. `STRIPE_PROFILE_ID`).
 
 ```java
-TempoMethod tempo = Tempo.method(true);
+TempoMethod tempo = TempoConfig.testnet().build();
 MppHandler tempoHandler = Mpp.create(tempo, "api.example.com", System.getenv("MPP_SECRET_KEY"));
 
-StripeMethod stripe = Stripe.method(System.getenv("STRIPE_SECRET_KEY"), System.getenv("STRIPE_PROFILE_ID"));
+StripeMethod stripe = StripeConfig.of(System.getenv("STRIPE_SECRET_KEY"), System.getenv("STRIPE_PROFILE_ID")).build();
 MppHandler stripeHandler = Mpp.create(stripe, "api.example.com", System.getenv("MPP_SECRET_KEY"));
 
 ComposedHandler mppHandler = Mpp.compose(

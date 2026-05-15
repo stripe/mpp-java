@@ -22,6 +22,11 @@ import java.util.Map;
 public final class Stripe {
     private Stripe() {}
 
+    /** Returns a {@link StripeMethod} from a {@link StripeConfig} builder. */
+    public static StripeMethod method(StripeConfig config) {
+        return config.build();
+    }
+
     /**
      * Returns a {@link StripeMethod} with default USD / 2-decimal settings.
      *

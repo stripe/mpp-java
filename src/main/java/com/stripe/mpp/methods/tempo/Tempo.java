@@ -20,6 +20,11 @@ package com.stripe.mpp.methods.tempo;
 public final class Tempo {
     private Tempo() {}
 
+    /** Returns a {@link TempoMethod} from a {@link TempoConfig} builder. */
+    public static TempoMethod method(TempoConfig config) {
+        return config.build();
+    }
+
     /** Returns a {@link TempoMethod} configured for Tempo mainnet. */
     public static TempoMethod method() {
         return method(false);

@@ -117,20 +117,24 @@ class TempoIntegrationTest {
         TempoMethod tempo  = Tempo.method(rpcUrl, (int) chainId);
         MppHandler  server = Mpp.create(tempo, "localhost", "test-secret");
 
+        // Token amount matches what buildSignedTx sends (1_000 atomic units = 0.001000 tokens)
+        BigInteger tokenAmount = BigInteger.valueOf(1_000L);
+        String chargeAmount = "0.001000";
+
         // Step 1: no auth → server issues challenge
-        VerifyResult r1 = server.charge(null, tempo.chargeIntent(), "0.010000", "USDC", RECIPIENT);
+        VerifyResult r1 = server.charge(null, tempo.chargeIntent(), chargeAmount, TOKEN_CONTRACT, RECIPIENT);
         assertThat(r1).isInstanceOf(VerifyResult.Challenged.class);
         Challenge challenge = ((VerifyResult.Challenged) r1).challenge();
 
         // Step 2: client builds a transaction and wraps it in a credential
-        String rawTx = buildSignedTx(nextNonce(), BigInteger.valueOf(1_000L));
+        String rawTx = buildSignedTx(nextNonce(), tokenAmount);
         Credential credential = new Credential(challenge.toEcho(), Map.of("type", "transaction", "signature", rawTx), null);
 
         // Step 3: retry with the credential
         VerifyResult r2 = server.charge(
             credential.toAuthorization(),
             tempo.chargeIntent(),
-            "0.010000", "USDC", RECIPIENT
+            chargeAmount, TOKEN_CONTRACT, RECIPIENT
         );
 
         assertThat(r2).isInstanceOf(VerifyResult.Verified.class);
@@ -145,7 +149,7 @@ class TempoIntegrationTest {
         TempoMethod tempo  = Tempo.method(rpcUrl, (int) chainId);
         MppHandler  server = Mpp.create(tempo, "localhost", "test-secret");
 
-        VerifyResult r1 = server.charge(null, tempo.chargeIntent(), "0.010000", "USDC", RECIPIENT);
+        VerifyResult r1 = server.charge(null, tempo.chargeIntent(), "0.001000", TOKEN_CONTRACT, RECIPIENT);
         Challenge challenge = ((VerifyResult.Challenged) r1).challenge();
 
         // Swap in a different payload that has never been broadcast.
@@ -160,7 +164,7 @@ class TempoIntegrationTest {
         VerifyResult r2 = server.charge(
             credential.toAuthorization(),
             tempo.chargeIntent(),
-            "0.010000", "USDC", RECIPIENT
+            "0.001000", TOKEN_CONTRACT, RECIPIENT
         );
         assertThat(r2).isInstanceOf(VerifyResult.Challenged.class);
     }
@@ -170,7 +174,7 @@ class TempoIntegrationTest {
     // -------------------------------------------------------------------------
 
     private static Map<String, Object> baseRequest() {
-        return Map.of("amount", "0.010000", "currency", "USDC", "recipient", RECIPIENT);
+        return Map.of("amount", "1000", "currency", TOKEN_CONTRACT, "recipient", RECIPIENT);
     }
 
     private static Credential txCredential(String rawTx) {

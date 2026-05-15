@@ -2,230 +2,86 @@
 
 Java 11 proof-of-concept SDK for the [Machine Payments Protocol](https://mpp.dev).
 
-This library currently supports:
-
-- Core MPP types: `Challenge`, `ChallengeEcho`, `Credential`, and `Receipt`
-- Server-side charge verification with `MppHandler`
-- Tempo charge challenges via `Tempo.method()` and `Tempo.chargeIntent()`
-- Tempo credential verification for raw transaction payloads (`transaction`) and already-broadcast transaction hashes (`hash`)
-- Manual client-side challenge parsing and credential serialization
-
-It does not yet include a high-level automatic client transport like Ruby's
-`Mpp::Client::Transport` from the [Go and Ruby SDK announcement](https://mpp.dev/blog/go-and-ruby-sdks).
-
 ## Install
 
-The package is configured as a Gradle Java library.
-
 ```groovy
-repositories {
-    mavenCentral()
-}
-
 dependencies {
     implementation "io.github.raubrey2014:mpp-java-poc:0.1.0"
 }
 ```
 
-For local development:
+## Tempo
 
-```sh
-./gradlew test
-```
-
-## Charge For A Route
-
-This mirrors the Ruby server flow from the blog post: create an MPP server with a
-payment method, call `charge`, then either return a `402` challenge or continue
-with the verified credential and receipt.
+The `currency` parameter must be the token contract address — the server verifies it against
+the ERC-20 Transfer logs in the transaction receipt. On testnet (Moderato) this is PATH_USD;
+on mainnet it is USDC.
 
 ```java
-import com.stripe.mpp.Mpp;
-import com.stripe.mpp.methods.tempo.Tempo;
-import com.stripe.mpp.methods.tempo.TempoMethod;
-import com.stripe.mpp.server.MppHandler;
-import com.stripe.mpp.server.VerifyResult;
+// Testnet:  TempoDefaults.TESTNET_PATH_USD = "0x20c0000000000000000000000000000000000000"
+// Mainnet:  TempoDefaults.MAINNET_USDC     = "0x20C000000000000000000000b9537d11c60E8b50"
+String currency = TempoDefaults.TESTNET_PATH_USD;
 
-import com.sun.net.httpserver.HttpServer;
+TempoMethod tempo = Tempo.method(true); // true = Moderato testnet
+MppHandler payment = Mpp.create(tempo, "api.example.com", System.getenv("MPP_SECRET_KEY"));
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
+// In your HTTP handler:
+VerifyResult result = payment.charge(
+    request.getHeader("Authorization"),
+    tempo.chargeIntent(),
+    "0.50", currency, "0xYourWalletAddress",
+    "Paid endpoint", null, null
+);
 
-public class ServerExample {
-    public static void main(String[] args) throws IOException {
-        String secretKey = System.getenv("MPP_SECRET_KEY");
-
-        TempoMethod tempo = Tempo.method(true); // Moderato testnet
-        MppHandler payment = Mpp.create(tempo, "api.example.com", secretKey);
-
-        HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
-        server.createContext("/paid", exchange -> {
-            VerifyResult result = payment.charge(
-                exchange.getRequestHeaders().getFirst("Authorization"),
-                tempo.chargeIntent(),
-                "0.50",
-                "USDC",
-                "0x742d35Cc6634c0532925a3b844bC9e7595F8fE00",
-                "Paid endpoint",
-                null,
-                null
-            );
-
-            if (result instanceof VerifyResult.Challenged) {
-                VerifyResult.Challenged challenged = (VerifyResult.Challenged) result;
-                exchange.getResponseHeaders().add(
-                    "WWW-Authenticate",
-                    challenged.challenge().toWwwAuthenticate()
-                );
-                exchange.sendResponseHeaders(402, -1);
-                exchange.close();
-                return;
-            }
-
-            VerifyResult.Verified verified = (VerifyResult.Verified) result;
-            String body = "{\"data\":\"paid content\",\"payer\":\""
-                + verified.credential().source()
-                + "\"}";
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-
-            exchange.getResponseHeaders().add(
-                "Payment-Receipt",
-                verified.receipt().toPaymentReceipt()
-            );
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, bytes.length);
-            exchange.getResponseBody().write(bytes);
-            exchange.close();
-        });
-        server.start();
-    }
+if (result instanceof VerifyResult.Challenged) {
+    response.setHeader("WWW-Authenticate",
+        ((VerifyResult.Challenged) result).challenge().toWwwAuthenticate());
+    response.setStatus(402);
+} else {
+    VerifyResult.Verified verified = (VerifyResult.Verified) result;
+    response.setHeader("Payment-Receipt", verified.receipt().toPaymentReceipt());
+    // serve your content
 }
 ```
 
-The first request without a valid `Authorization` header returns:
+The client presents a Tempo credential in `Authorization`:
 
-```http
-HTTP/1.1 402 Payment Required
-WWW-Authenticate: Payment id="...", realm="api.example.com", method="tempo", intent="charge", request="...", expires="...", description="Paid endpoint"
+```json
+{"transaction": "0x..."}
 ```
 
-The next request presents a payment credential in `Authorization`. If the
-credential is valid and the Tempo transaction verifies, the handler returns a
-`VerifyResult.Verified` containing both the credential and receipt.
+or, if already broadcast:
 
-## Make A Paid Request
+```json
+{"hash": "0x..."}
+```
 
-The Ruby SDK example uses `Mpp::Client::Transport` to automatically retry after
-a `402`. This Java POC exposes the lower-level pieces today: parse the challenge,
-build a `Credential`, and send it in a second request.
+## Tempo + Stripe
 
 ```java
-import com.stripe.mpp.Challenge;
-import com.stripe.mpp.Credential;
-import com.stripe.mpp.Receipt;
+TempoMethod tempo = Tempo.method(true);
+MppHandler tempoHandler = Mpp.create(tempo, "api.example.com", System.getenv("MPP_SECRET_KEY"));
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.util.List;
-import java.util.Map;
+StripeMethod stripe = Stripe.method(System.getenv("STRIPE_SECRET_KEY"), "us-east-1");
+MppHandler stripeHandler = Mpp.create(stripe, "api.example.com", System.getenv("MPP_SECRET_KEY"));
 
-public class ClientExample {
-    public static void main(String[] args) throws Exception {
-        HttpClient http = HttpClient.newHttpClient();
-        URI uri = URI.create("https://api.example.com/paid");
+ComposedHandler payment = Mpp.compose(
+    tempoHandler.chargeDescriptor(tempo.chargeIntent(), "0.50", TempoDefaults.TESTNET_PATH_USD, "0xYourWalletAddress"),
+    stripeHandler.chargeDescriptor(stripe.chargeIntent(), "0.50", "usd", null)
+);
 
-        HttpResponse<String> first = http.send(
-            HttpRequest.newBuilder(uri).GET().build(),
-            HttpResponse.BodyHandlers.ofString()
-        );
+// In your HTTP handler:
+VerifyResult result = payment.charge(request.getHeader("Authorization"));
 
-        if (first.statusCode() != 402) {
-            System.out.println(first.statusCode());
-            return;
-        }
-
-        List<String> headers = first.headers().allValues("WWW-Authenticate");
-        Challenge challenge = Challenge.fromWwwAuthenticate(headers).get(0);
-
-        // For Tempo, payload must contain either:
-        // - "transaction": a signed raw EVM transaction for server broadcast, or
-        // - "hash": a transaction hash already broadcast by the client.
-        Map<String, Object> payload = Map.of(
-            "hash",
-            "0x..."
-        );
-        Credential credential = new Credential(challenge.toEcho(), payload, null);
-
-        HttpResponse<String> paid = http.send(
-            HttpRequest.newBuilder(uri)
-                .header("Authorization", credential.toAuthorization())
-                .GET()
-                .build(),
-            HttpResponse.BodyHandlers.ofString()
-        );
-
-        paid.headers().firstValue("Payment-Receipt").ifPresent(header -> {
-            Receipt receipt = Receipt.fromPaymentReceipt(header);
-            System.out.println(receipt.status());
-        });
-        System.out.println(paid.statusCode());
-    }
+if (result instanceof VerifyResult.Challenged) {
+    List<String> headers = Challenge.toWwwAuthenticate(
+        ((VerifyResult.Challenged) result).challenges());
+    headers.forEach(h -> response.addHeader("WWW-Authenticate", h));
+    response.setStatus(402);
+} else {
+    VerifyResult.Verified verified = (VerifyResult.Verified) result;
+    response.setHeader("Payment-Receipt", verified.receipt().toPaymentReceipt());
+    // serve your content
 }
 ```
 
-## Tempo Support
-
-Use `Tempo.method()` and `Tempo.chargeIntent()` for mainnet, or pass `true` for
-Moderato testnet.
-
-```java
-TempoMethod mainnet = Tempo.method();
-TempoMethod testnet = Tempo.method(true);
-```
-
-`TempoChargeIntent` accepts the credential payload shapes produced by Tempo
-clients:
-
-- `{"transaction": "0x..."}` broadcasts the raw signed transaction through the configured Tempo RPC.
-- `{"hash": "0x..."}` verifies an already-broadcast transaction receipt.
-
-## Custom Payment Methods
-
-Implement `Method` and `Intent` to add another payment method.
-
-```java
-import com.stripe.mpp.Credential;
-import com.stripe.mpp.Receipt;
-import com.stripe.mpp.server.Intent;
-import com.stripe.mpp.server.Method;
-
-import java.util.List;
-import java.util.Map;
-
-class ChargeIntent implements Intent {
-    @Override
-    public String name() {
-        return "charge";
-    }
-
-    @Override
-    public Receipt verify(Credential credential, Map<String, Object> request) {
-        return Receipt.success("payment-reference", "custom");
-    }
-}
-
-class CustomMethod implements Method {
-    @Override
-    public String name() {
-        return "custom";
-    }
-
-    @Override
-    public List<Class<? extends Intent>> intents() {
-        return List.of(ChargeIntent.class);
-    }
-}
-```
+The `402` response includes one `WWW-Authenticate` header per method; the client picks one and retries with the matching credential.

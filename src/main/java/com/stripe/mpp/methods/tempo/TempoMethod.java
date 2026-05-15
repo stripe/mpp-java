@@ -15,7 +15,7 @@ import java.util.Map;
  * <pre>{@code
  * TempoMethod tempo = TempoMethod.mainnet().build();
  * TempoMethod tempo = TempoMethod.testnet().build();
- * TempoMethod tempo = TempoMethod.testnet().debug().build();
+
  * TempoMethod tempo = TempoMethod.custom("http://localhost:8545", 1337).build();
  * }</pre>
  */
@@ -26,22 +26,14 @@ public class TempoMethod implements Method {
     private final TempoChargeIntent chargeIntent;
 
     TempoMethod(String rpcUrl, int chainId) {
-        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, false);
-    }
-
-    TempoMethod(String rpcUrl, int chainId, boolean debug) {
-        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, debug);
+        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS);
     }
 
     TempoMethod(String rpcUrl, int chainId, int decimals) {
-        this(rpcUrl, chainId, decimals, false);
-    }
-
-    TempoMethod(String rpcUrl, int chainId, int decimals, boolean debug) {
         this.rpcUrl = rpcUrl;
         this.chainId = chainId;
         this.decimals = decimals;
-        this.chargeIntent = new TempoChargeIntent(rpcUrl, debug);
+        this.chargeIntent = new TempoChargeIntent(rpcUrl, new TempoRpc());
     }
 
     /** Starts a builder targeting Tempo mainnet (chain 4217). */
@@ -62,18 +54,13 @@ public class TempoMethod implements Method {
     public static final class Builder {
         private final String rpcUrl;
         private final int chainId;
-        private boolean debug = false;
-
         private Builder(String rpcUrl, int chainId) {
             this.rpcUrl  = rpcUrl;
             this.chainId = chainId;
         }
 
-        /** Enables INFO-level logging of raw JSON-RPC request/response bodies. */
-        public Builder debug() { this.debug = true; return this; }
-
         public TempoMethod build() {
-            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, debug);
+            return new TempoMethod(rpcUrl, chainId);
         }
     }
 

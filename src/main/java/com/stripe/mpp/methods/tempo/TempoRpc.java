@@ -14,10 +14,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Logger;
 
 class TempoRpc {
-    private static final Logger LOG = Logger.getLogger(TempoRpc.class.getName());
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
     private static final AtomicInteger ID_SEQ = new AtomicInteger(1);
     private static final ObjectMapper JSON = JsonMapper.builder()
@@ -25,23 +23,13 @@ class TempoRpc {
         .build();
 
     private final HttpClient http;
-    private final boolean debug;
 
     TempoRpc() {
-        this(HttpClient.newBuilder().connectTimeout(TIMEOUT).build(), false);
-    }
-
-    TempoRpc(boolean debug) {
-        this(HttpClient.newBuilder().connectTimeout(TIMEOUT).build(), debug);
+        this(HttpClient.newBuilder().connectTimeout(TIMEOUT).build());
     }
 
     TempoRpc(HttpClient http) {
-        this(http, false);
-    }
-
-    TempoRpc(HttpClient http, boolean debug) {
         this.http = http;
-        this.debug = debug;
     }
 
     String sendRawTransaction(String rpcUrl, String rawTx) {
@@ -68,9 +56,6 @@ class TempoRpc {
 
         try {
             String requestBody = JSON.writeValueAsString(body);
-            if (debug) {
-                LOG.info("[tempo-rpc] --> " + method + " " + requestBody);
-            }
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(rpcUrl))
                 .header("Content-Type", "application/json")
@@ -78,9 +63,6 @@ class TempoRpc {
                 .timeout(TIMEOUT)
                 .build();
             HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
-            if (debug) {
-                LOG.info("[tempo-rpc] <-- " + method + " HTTP " + response.statusCode() + " " + response.body());
-            }
             Map<String, Object> responseMap = JSON.readValue(response.body(), Map.class);
             if (responseMap.containsKey("error")) {
                 Map<String, Object> error = (Map<String, Object>) responseMap.get("error");

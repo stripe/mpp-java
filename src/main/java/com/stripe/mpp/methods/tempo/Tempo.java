@@ -7,7 +7,7 @@ package com.stripe.mpp.methods.tempo;
  *
  * <pre>{@code
  * TempoMethod tempo = TempoMethod.testnet().build();
- * TempoMethod tempo = TempoMethod.mainnet().debug().build();
+ * TempoMethod tempo = TempoMethod.mainnet().build();
  * TempoMethod tempo = TempoMethod.custom("http://localhost:8545", 1337).build();
  * }</pre>
  *
@@ -31,18 +31,6 @@ public final class Tempo {
     }
 
     /**
-     * Returns a {@link TempoMethod} for mainnet or testnet, with optional debug logging.
-     *
-     * @param testnet {@code true} for Moderato testnet, {@code false} for mainnet
-     * @param debug   {@code true} to log raw RPC request/response bodies at INFO level
-     */
-    public static TempoMethod method(boolean testnet, boolean debug) {
-        TempoMethod.Builder b = testnet ? TempoMethod.testnet() : TempoMethod.mainnet();
-        if (debug) b.debug();
-        return b.build();
-    }
-
-    /**
      * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain ID.
      *
      * @param rpcUrl  JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
@@ -50,20 +38,6 @@ public final class Tempo {
      */
     public static TempoMethod method(String rpcUrl, int chainId) {
         return TempoMethod.custom(rpcUrl, chainId).build();
-    }
-
-    /**
-     * Returns a {@link TempoMethod} pointed at a custom RPC URL and chain ID, with optional
-     * debug logging.
-     *
-     * @param rpcUrl  JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
-     * @param chainId numeric EVM chain ID (e.g. {@code 1337})
-     * @param debug   {@code true} to log raw RPC request/response bodies
-     */
-    public static TempoMethod method(String rpcUrl, int chainId, boolean debug) {
-        TempoMethod.Builder b = TempoMethod.custom(rpcUrl, chainId);
-        if (debug) b.debug();
-        return b.build();
     }
 
     /** Returns a {@link TempoChargeIntent} that submits payments on Tempo mainnet. */
@@ -87,15 +61,5 @@ public final class Tempo {
      */
     public static TempoChargeIntent chargeIntent(String rpcUrl) {
         return new TempoChargeIntent(rpcUrl);
-    }
-
-    /**
-     * Returns a {@link TempoChargeIntent} pointed at a custom RPC URL with optional debug logging.
-     *
-     * @param rpcUrl JSON-RPC endpoint (e.g. {@code "http://localhost:8545"})
-     * @param debug  {@code true} to log raw RPC request/response bodies
-     */
-    public static TempoChargeIntent chargeIntent(String rpcUrl, boolean debug) {
-        return new TempoChargeIntent(rpcUrl, debug);
     }
 }

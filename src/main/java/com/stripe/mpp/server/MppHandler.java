@@ -110,6 +110,12 @@ public class MppHandler {
         return charge(authorization, intent, null, null, null, null, null, null);
     }
 
+    /** Overload accepting a {@link ChargeRequest} — avoids trailing nulls for optional fields. */
+    public VerifyResult charge(String authorization, ChargeRequest req) {
+        return charge(authorization, req.intent(), req.amount(), req.currency(),
+                      req.recipient(), req.description(), req.meta(), req.expires());
+    }
+
     /**
      * Create a {@link ChargeDescriptor} pre-configured with the given parameters for use
      * with {@link com.stripe.mpp.Mpp#compose}.
@@ -129,6 +135,12 @@ public class MppHandler {
     /** Convenience overload with required fields only. */
     public ChargeDescriptor chargeDescriptor(Intent intent, String amount, String currency, String recipient) {
         return chargeDescriptor(intent, amount, currency, recipient, null, null, null);
+    }
+
+    /** Overload accepting a {@link ChargeRequest} — avoids trailing nulls for optional fields. */
+    public ChargeDescriptor chargeDescriptor(ChargeRequest req) {
+        return chargeDescriptor(req.intent(), req.amount(), req.currency(), req.recipient(),
+                                req.description(), req.meta(), req.expires());
     }
 
     /** Build the request map for this handler and descriptor (applies defaults and method transforms). */

@@ -22,14 +22,13 @@ on mainnet it is USDC.
 String currency = TempoDefaults.TESTNET_PATH_USD;
 
 TempoMethod tempo = Tempo.method(true); // true = Moderato testnet
-MppHandler payment = Mpp.create(tempo, "api.example.com", System.getenv("MPP_SECRET_KEY"));
+MppHandler mppHandler = Mpp.create(tempo, "api.example.com", System.getenv("MPP_SECRET_KEY"));
 
 // In your HTTP handler:
-VerifyResult result = payment.charge(
+VerifyResult result = mppHandler.charge(
     request.getHeader("Authorization"),
-    tempo.chargeIntent(),
-    "0.50", currency, "0xYourWalletAddress",
-    "Paid endpoint", null, null
+    ChargeRequest.of(tempo.chargeIntent(), "0.50", currency, "0xYourWalletAddress")
+        .description("Paid endpoint")
 );
 
 if (result instanceof VerifyResult.Challenged) {
@@ -57,20 +56,23 @@ or, if already broadcast:
 
 ## Tempo + Stripe
 
+`networkId` is an arbitrary identifier sent to the client in the Stripe challenge so it knows
+which Stripe profile to pay. Use your Stripe profile or network ID (e.g. `STRIPE_PROFILE_ID`).
+
 ```java
 TempoMethod tempo = Tempo.method(true);
 MppHandler tempoHandler = Mpp.create(tempo, "api.example.com", System.getenv("MPP_SECRET_KEY"));
 
-StripeMethod stripe = Stripe.method(System.getenv("STRIPE_SECRET_KEY"), "us-east-1");
+StripeMethod stripe = Stripe.method(System.getenv("STRIPE_SECRET_KEY"), System.getenv("STRIPE_PROFILE_ID"));
 MppHandler stripeHandler = Mpp.create(stripe, "api.example.com", System.getenv("MPP_SECRET_KEY"));
 
-ComposedHandler payment = Mpp.compose(
-    tempoHandler.chargeDescriptor(tempo.chargeIntent(), "0.50", TempoDefaults.TESTNET_PATH_USD, "0xYourWalletAddress"),
-    stripeHandler.chargeDescriptor(stripe.chargeIntent(), "0.50", "usd", null)
+ComposedHandler mppHandler = Mpp.compose(
+    tempoHandler.chargeDescriptor(ChargeRequest.of(tempo.chargeIntent(), "0.50", TempoDefaults.TESTNET_PATH_USD, "0xYourWalletAddress")),
+    stripeHandler.chargeDescriptor(ChargeRequest.of(stripe.chargeIntent(), "0.50", "usd", System.getenv("STRIPE_PROFILE_ID")))
 );
 
 // In your HTTP handler:
-VerifyResult result = payment.charge(request.getHeader("Authorization"));
+VerifyResult result = mppHandler.charge(request.getHeader("Authorization"));
 
 if (result instanceof VerifyResult.Challenged) {
     List<String> headers = Challenge.toWwwAuthenticate(

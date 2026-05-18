@@ -3,7 +3,7 @@ plugins {
     id 'maven-publish'
 }
 
-group = 'io.github.raubrey2014'
+group = 'com.stripe'
 version = '0.1.0'
 
 java {
@@ -64,12 +64,12 @@ publishing {
     publications {
         mavenJava(MavenPublication) {
             from components.java
-            artifactId = 'mpp-java-poc'
+            artifactId = 'mpp-java'
 
             pom {
-                name = 'MPP Java SDK POC'
-                description = 'Proof-of-concept Java SDK for the Machine Payments Protocol (MPP)'
-                url = 'https://github.com/raubrey2014/mpp-java-poc'
+                name = 'MPP Java SDK'
+                description = 'Java SDK for the Machine Payments Protocol (MPP)'
+                url = 'https://github.com/stripe/mpp-java'
 
                 licenses {
                     license {
@@ -84,7 +84,7 @@ publishing {
     repositories {
         maven {
             name = 'GitHubPackages'
-            url = uri('https://maven.pkg.github.com/raubrey2014/mpp-java-poc')
+            url = uri('https://maven.pkg.github.com/stripe/mpp-java')
             credentials {
                 username = project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
                 password = project.findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')

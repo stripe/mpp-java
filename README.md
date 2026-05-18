@@ -1,16 +1,14 @@
-# MPP Java SDK POC
+# mpp-java
 
-Java 11 proof-of-concept SDK for the [Machine Payments Protocol](https://mpp.dev).
+Java SDK for the [**Machine Payments Protocol**](https://mpp.dev)
 
-## Install
+> **Note:** This is an experimental SDK and the API is subject to change.
 
-```groovy
-dependencies {
-    implementation "io.github.raubrey2014:mpp-java-poc:0.1.0"
-}
-```
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Tempo
+## Usage
+
+### Tempo
 
 The `currency` parameter must be the token contract address — the server verifies it against
 the ERC-20 Transfer logs in the transaction receipt. On testnet (Moderato) this is PATH_USD;
@@ -48,7 +46,7 @@ The endpoint can be tested using the [Tempo CLI](https://mpp.dev):
 tempo request https://your-api.com/your-endpoint
 ```
 
-## Tempo + Stripe
+### Tempo + Stripe
 
 `networkId` is an arbitrary identifier sent to the client in the Stripe challenge so it knows
 which Stripe profile to pay. Use your Stripe profile or network ID (e.g. `STRIPE_PROFILE_ID`).

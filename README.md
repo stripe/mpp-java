@@ -6,6 +6,24 @@ Java SDK for the [**Machine Payments Protocol**](https://mpp.dev)
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+## Installation
+
+### Gradle
+
+```groovy
+implementation 'com.stripe:mpp-java:0.1.0'
+```
+
+### Maven
+
+```xml
+<dependency>
+    <groupId>com.stripe</groupId>
+    <artifactId>mpp-java</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
 ## Usage
 
 ### Testnet

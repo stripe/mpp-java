@@ -1,10 +1,12 @@
 plugins {
     id 'java-library'
     id 'maven-publish'
+    id 'signing'
+    id 'io.github.gradle-nexus.publish-plugin' version '1.1.0'
 }
 
-group = 'com.stripe'
-version = '0.1.0'
+group = GROUP
+version = VERSION_NAME
 
 java {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -60,35 +62,14 @@ tasks.register('integrationTest', Test) {
     shouldRunAfter test
 }
 
-publishing {
-    publications {
-        mavenJava(MavenPublication) {
-            from components.java
-            artifactId = 'mpp-java'
-
-            pom {
-                name = 'MPP Java SDK'
-                description = 'Java SDK for the Machine Payments Protocol (MPP)'
-                url = 'https://github.com/stripe/mpp-java'
-
-                licenses {
-                    license {
-                        name = 'MIT License'
-                        url = 'https://opensource.org/licenses/MIT'
-                    }
-                }
-            }
-        }
-    }
-
-    repositories {
-        maven {
-            name = 'GitHubPackages'
-            url = uri('https://maven.pkg.github.com/stripe/mpp-java')
-            credentials {
-                username = project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
-                password = project.findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')
-            }
-        }
+jar {
+    manifest {
+        attributes(
+            "Implementation-Title": POM_NAME,
+            "Implementation-Version": VERSION_NAME,
+            "Implementation-Vendor": "Stripe, Inc."
+        )
     }
 }
+
+apply from: "deploy.gradle"

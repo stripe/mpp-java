@@ -52,6 +52,7 @@ jobs:
       - name: Publish package
         run: |
           ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository \
+            --stacktrace --info \
             -Dorg.gradle.project.NEXUS_USERNAME=$NEXUS_USERNAME \
             -Dorg.gradle.project.NEXUS_PASSWORD=$NEXUS_PASSWORD \
             -Dorg.gradle.project.signing.gnupg.keyName=$GPG_SIGNING_KEYID \

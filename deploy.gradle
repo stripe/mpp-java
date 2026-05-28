@@ -1,0 +1,106 @@
+apply plugin: "maven-publish"
+apply plugin: "signing"
+
+def isReleaseBuild() {
+    return VERSION_NAME.contains("SNAPSHOT") == false
+}
+
+def getReleaseRepositoryUrl() {
+    return hasProperty("RELEASE_REPOSITORY_URL") ? RELEASE_REPOSITORY_URL
+            : "https://ossrh-staging-api.central.sonatype.com/service/local/staging/deploy/maven2/"
+}
+
+def getSnapshotRepositoryUrl() {
+    return hasProperty("SNAPSHOT_REPOSITORY_URL") ? SNAPSHOT_REPOSITORY_URL
+            : "https://central.sonatype.com/repository/maven-snapshots/"
+}
+
+def getRepositoryUsername() {
+    return hasProperty("NEXUS_USERNAME") ? NEXUS_USERNAME : ""
+}
+
+def getRepositoryPassword() {
+    return hasProperty("NEXUS_PASSWORD") ? NEXUS_PASSWORD : ""
+}
+
+nexusPublishing {
+    packageGroup = GROUP
+
+    repositories {
+        sonatype {
+            nexusUrl = uri("https://ossrh-staging-api.central.sonatype.com/service/local/")
+            username = getRepositoryUsername()
+            password = getRepositoryPassword()
+        }
+    }
+
+    transitionCheckOptions {
+        maxRetries.set(40)
+        delayBetween.set(java.time.Duration.ofMillis(4000))
+    }
+}
+
+afterEvaluate { project ->
+    tasks.withType(Sign) {
+        onlyIf { isReleaseBuild() && project.hasProperty("signing.gnupg.keyName") }
+    }
+
+    signing {
+        required { isReleaseBuild() && gradle.taskGraph.hasTask("publish") }
+        useGpgCmd()
+        sign publishing.publications
+    }
+
+    publishing {
+        publications {
+            mavenJava(MavenPublication) {
+                groupId = GROUP
+                artifactId = POM_ARTIFACT_ID
+                version = VERSION_NAME
+                from components.java
+
+                pom {
+                    name = POM_NAME
+                    description = POM_DESCRIPTION
+                    url = POM_URL
+                    packaging = POM_PACKAGING
+                    licenses {
+                        license {
+                            name = POM_LICENCE_NAME
+                            url = POM_LICENCE_URL
+                            distribution = POM_LICENCE_DIST
+                        }
+                    }
+                    developers {
+                        developer {
+                            id = POM_DEVELOPER_ID
+                            name = POM_DEVELOPER_NAME
+                            email = POM_DEVELOPER_EMAIL
+                        }
+                    }
+                    organization {
+                        name = POM_DEVELOPER_NAME
+                        url = POM_ORGANIZATION_URL
+                    }
+                    scm {
+                        connection = POM_SCM_CONNECTION
+                        developerConnection = POM_SCM_DEV_CONNECTION
+                        url = POM_SCM_URL
+                    }
+                }
+            }
+        }
+        repositories {
+            maven {
+                name = "nexus"
+                def releasesRepoUrl = getReleaseRepositoryUrl()
+                def snapshotsRepoUrl = getSnapshotRepositoryUrl()
+                url = isReleaseBuild() ? releasesRepoUrl : snapshotsRepoUrl
+                credentials {
+                    username = getRepositoryUsername()
+                    password = getRepositoryPassword()
+                }
+            }
+        }
+    }
+}

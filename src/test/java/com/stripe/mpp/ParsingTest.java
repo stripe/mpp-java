@@ -46,6 +46,42 @@ class ParsingTest {
         assertThat(challenges.get(0).id()).isEqualTo("abc");
     }
 
+    @Test
+    void challengeEscapesQuotedStringDescription() {
+        Challenge original = Challenge.create("secret", "example.com", "tempo", "charge", Map.of(),
+            null, "Pay \"premium\" API", null);
+
+        String header = original.toWwwAuthenticate();
+
+        assertThat(header).contains("description=\"Pay \\\"premium\\\" API\"");
+        var parsed = Challenge.fromWwwAuthenticate(header);
+        assertThat(parsed).hasSize(1);
+        assertThat(parsed.get(0).description()).isEqualTo("Pay \"premium\" API");
+    }
+
+    @Test
+    void challengeEscapesBackslashDescription() {
+        Challenge original = Challenge.create("secret", "example.com", "tempo", "charge", Map.of(),
+            null, "Path C:\\tempo\\api", null);
+
+        String header = original.toWwwAuthenticate();
+
+        assertThat(header).contains("description=\"Path C:\\\\tempo\\\\api\"");
+        var parsed = Challenge.fromWwwAuthenticate(header);
+        assertThat(parsed).hasSize(1);
+        assertThat(parsed.get(0).description()).isEqualTo("Path C:\\tempo\\api");
+    }
+
+    @Test
+    void challengeRejectsCrlfDescription() {
+        Challenge challenge = Challenge.create("secret", "example.com", "tempo", "charge", Map.of(),
+            null, "Line one\r\nLine two", null);
+
+        assertThatThrownBy(challenge::toWwwAuthenticate)
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("CR or LF");
+    }
+
     // --- Credential (Authorization) ---
 
     @Test

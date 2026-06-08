@@ -63,7 +63,10 @@ final class Parsing {
     }
 
     private static String quote(String value) {
-        return "\"" + value + "\"";
+        if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+            throw new IllegalArgumentException("Header values must not contain CR or LF");
+        }
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
     // --- WWW-Authenticate (Challenge) ---

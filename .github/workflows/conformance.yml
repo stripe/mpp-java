@@ -1,0 +1,99 @@
+name: Conformance
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+      - labeled
+      - unlabeled
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  conformance-policy:
+    uses: tempoxyz/mpp-tools/.github/workflows/sdk-conformance-policy.yml@main
+    with:
+      protocol-paths: |
+        src/**
+        build.gradle
+        gradle.properties
+
+  conformance:
+    needs: conformance-policy
+    name: java conformance
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mpp-tools/conformance
+
+    steps:
+      - name: Checkout SDK
+        uses: actions/checkout@v4
+        with:
+          path: sdk
+
+      - name: Checkout conformance suite
+        uses: actions/checkout@v4
+        with:
+          repository: tempoxyz/mpp-tools
+          ref: ${{ needs.conformance-policy.outputs.conformance_ref }}
+          path: mpp-tools
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: gradle
+          cache-dependency-path: |
+            sdk/build.gradle
+            mpp-tools/conformance/adapters/java/build.gradle
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mpp-tools/conformance/package-lock.json
+
+      - name: Install conformance runner dependencies
+        run: make install-runner
+
+      - name: Build SDK jar
+        working-directory: sdk
+        run: ./gradlew --no-daemon jar
+
+      - name: Point adapter at SDK checkout
+        run: python3 scripts/use_local_sdk.py --adapter java --sdk-path "${{ github.workspace }}/sdk"
+
+      - name: Build Java adapter
+        working-directory: mpp-tools/conformance/adapters/java
+        run: ./gradlew --no-daemon installDist
+
+      - name: Run vector conformance
+        run: python3 scripts/vector_runner.py --adapter java
+
+      - name: Run flow conformance
+        run: python3 scripts/flow_runner.py --adapter java
+
+      - name: Write summary
+        if: always()
+        run: |
+          {
+            echo "### SDK conformance"
+            echo ""
+            echo "- Adapter: \`java\`"
+            echo "- SDK checkout: \`${{ github.workspace }}/sdk\`"
+            echo "- Conformance ref: \`${{ needs.conformance-policy.outputs.conformance_ref }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -92,6 +92,12 @@ public final class Challenge {
             if (authParams == null) continue;
 
             Map<String, String> params = Parsing.parseAuthParams(authParams);
+            String request = params.get("request");
+            if (request != null && request.length() > Parsing.MAX_PAYLOAD_SIZE) {
+                throw new com.stripe.mpp.error.ParseException(
+                    "Request parameter exceeds maximum length of " + Parsing.MAX_PAYLOAD_SIZE + " bytes"
+                );
+            }
             Map<String, Object> opaque = null;
             String opaqueVal = params.get("opaque");
             if (opaqueVal != null && !opaqueVal.isEmpty()) {
@@ -103,7 +109,7 @@ public final class Challenge {
                 params.get("intent"),
                 null,
                 params.get("realm"),
-                params.get("request"),
+                request,
                 params.get("digest"),
                 params.get("expires"),
                 params.get("description"),

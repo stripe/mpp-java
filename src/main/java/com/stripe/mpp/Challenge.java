@@ -94,6 +94,11 @@ public final class Challenge {
                 Parsing.validatePaymentMethodId(method);
                 String intent = Parsing.requireString(params, "intent");
                 String requestB64 = Parsing.requireString(params, "request");
+                if (requestB64.length() > Parsing.MAX_PAYLOAD_SIZE) {
+                    throw new com.stripe.mpp.error.ParseException(
+                        "Request parameter exceeds maximum length of " + Parsing.MAX_PAYLOAD_SIZE + " bytes"
+                    );
+                }
                 Map<String, Object> request = ChallengeId.b64urlDecodeToMap(requestB64);
                 Map<String, Object> opaque = null;
                 String opaqueVal = params.get("opaque");

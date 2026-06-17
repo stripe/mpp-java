@@ -125,6 +125,18 @@ class ParsingTest {
             .hasMessageContaining("CR or LF");
     }
 
+    @Test
+    void challengeRejectsOversizedRequestParameter() {
+        String oversizedRequest = "a".repeat(Parsing.MAX_PAYLOAD_SIZE + 1);
+        String header = "Payment id=\"abc\", realm=\"api\", method=\"tempo\", intent=\"charge\", request=\""
+            + oversizedRequest
+            + "\"";
+
+        assertThatThrownBy(() -> Challenge.fromWwwAuthenticate(header))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("Request parameter exceeds");
+    }
+
     // --- Credential (Authorization) ---
 
     @Test

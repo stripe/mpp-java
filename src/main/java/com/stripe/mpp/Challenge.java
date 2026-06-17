@@ -86,35 +86,38 @@ public final class Challenge {
     public static List<Challenge> fromWwwAuthenticate(List<String> wwwAuthenticateHeaders) {
         List<Challenge> challenges = new ArrayList<>();
         for (String header : wwwAuthenticateHeaders) {
-            // Find each "Payment " scheme in the header. Auth-params are comma-separated, so
-            // we cannot simply split by comma; instead we locate the scheme token boundary.
-            String authParams = extractPaymentAuthParams(header);
-            if (authParams == null) continue;
-
-            Map<String, String> params = Parsing.parseAuthParams(authParams);
-            String request = params.get("request");
-            if (request != null && request.length() > Parsing.MAX_PAYLOAD_SIZE) {
-                throw new com.stripe.mpp.error.ParseException(
-                    "Request parameter exceeds maximum length of " + Parsing.MAX_PAYLOAD_SIZE + " bytes"
-                );
+            for (String authParams : extractPaymentAuthParamChunks(header)) {
+                Map<String, String> params = Parsing.parseAuthParams(authParams);
+                String id = Parsing.requireString(params, "id");
+                String realm = Parsing.requireString(params, "realm");
+                String method = Parsing.requireString(params, "method");
+                Parsing.validatePaymentMethodId(method);
+                String intent = Parsing.requireString(params, "intent");
+                String requestB64 = Parsing.requireString(params, "request");
+                if (requestB64.length() > Parsing.MAX_PAYLOAD_SIZE) {
+                    throw new com.stripe.mpp.error.ParseException(
+                        "Request parameter exceeds maximum length of " + Parsing.MAX_PAYLOAD_SIZE + " bytes"
+                    );
+                }
+                Map<String, Object> request = ChallengeId.b64urlDecodeToMap(requestB64);
+                Map<String, Object> opaque = null;
+                String opaqueVal = params.get("opaque");
+                if (opaqueVal != null && !opaqueVal.isEmpty()) {
+                    opaque = ChallengeId.b64urlDecodeToMap(opaqueVal);
+                }
+                challenges.add(new Challenge(
+                    id,
+                    method,
+                    intent,
+                    request,
+                    realm,
+                    requestB64,
+                    params.get("digest"),
+                    params.get("expires"),
+                    params.get("description"),
+                    opaque
+                ));
             }
-            Map<String, Object> opaque = null;
-            String opaqueVal = params.get("opaque");
-            if (opaqueVal != null && !opaqueVal.isEmpty()) {
-                opaque = ChallengeId.b64urlDecodeToMap(opaqueVal);
-            }
-            challenges.add(new Challenge(
-                params.get("id"),
-                params.get("method"),
-                params.get("intent"),
-                null,
-                params.get("realm"),
-                request,
-                params.get("digest"),
-                params.get("expires"),
-                params.get("description"),
-                opaque
-            ));
         }
         return challenges;
     }
@@ -124,12 +127,99 @@ public final class Challenge {
      * Handles multi-scheme headers like "Bearer token, Payment id=...".
      */
     static String extractPaymentAuthParams(String header) {
-        String lower = header.toLowerCase();
-        // Match at start or after a scheme boundary (", " before the scheme token)
-        if (lower.startsWith("payment ")) return header.substring("payment ".length());
-        int idx = lower.indexOf(", payment ");
-        if (idx >= 0) return header.substring(idx + ", payment ".length());
-        return null;
+        List<String> chunks = extractPaymentAuthParamChunks(header);
+        return chunks.isEmpty() ? null : chunks.get(0);
+    }
+
+    private static List<String> extractPaymentAuthParamChunks(String header) {
+        List<AuthScheme> schemes = authSchemes(header, 0);
+        List<String> chunks = new ArrayList<>();
+        for (int i = 0; i < schemes.size(); i++) {
+            AuthScheme scheme = schemes.get(i);
+            if (!"Payment".equalsIgnoreCase(scheme.name)) continue;
+
+            int end = i + 1 < schemes.size() ? schemes.get(i + 1).index : header.length();
+            String chunk = header.substring(scheme.paramsStart, end).replaceAll(",\\s*$", "").trim();
+            if (!chunk.isEmpty()) chunks.add(chunk);
+        }
+        return chunks;
+    }
+
+    private static List<AuthScheme> authSchemes(String header, int offset) {
+        List<AuthScheme> schemes = new ArrayList<>();
+        boolean inQuote = false;
+        boolean escaped = false;
+        int i = offset;
+
+        while (i < header.length()) {
+            char c = header.charAt(i);
+            if (inQuote) {
+                if (escaped) {
+                    escaped = false;
+                } else if (c == '\\') {
+                    escaped = true;
+                } else if (c == '"') {
+                    inQuote = false;
+                }
+                i++;
+                continue;
+            }
+
+            if (c == '"') {
+                inQuote = true;
+                i++;
+                continue;
+            }
+
+            if (schemeBoundary(header, i) && isSchemeStart(c)) {
+                int tokenEnd = i + 1;
+                while (tokenEnd < header.length() && isSchemeChar(header.charAt(tokenEnd))) {
+                    tokenEnd++;
+                }
+                int paramsStart = tokenEnd;
+                if (paramsStart < header.length() && Character.isWhitespace(header.charAt(paramsStart))) {
+                    while (paramsStart < header.length() && Character.isWhitespace(header.charAt(paramsStart))) {
+                        paramsStart++;
+                    }
+                    if (paramsStart >= header.length() || header.charAt(paramsStart) != '=') {
+                        schemes.add(new AuthScheme(i, paramsStart, header.substring(i, tokenEnd)));
+                        i = paramsStart;
+                        continue;
+                    }
+                }
+            }
+
+            i++;
+        }
+        return schemes;
+    }
+
+    private static boolean schemeBoundary(String header, int index) {
+        int i = index - 1;
+        while (i >= 0 && Character.isWhitespace(header.charAt(i))) i--;
+        return i < 0 || header.charAt(i) == ',';
+    }
+
+    private static boolean isSchemeStart(char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+    }
+
+    private static boolean isSchemeChar(char c) {
+        return isSchemeStart(c)
+            || (c >= '0' && c <= '9')
+            || c == '.' || c == '_' || c == '~' || c == '+' || c == '/' || c == '-';
+    }
+
+    private static final class AuthScheme {
+        private final int index;
+        private final int paramsStart;
+        private final String name;
+
+        private AuthScheme(int index, int paramsStart, String name) {
+            this.index = index;
+            this.paramsStart = paramsStart;
+            this.name = name;
+        }
     }
 
     public static List<Challenge> fromWwwAuthenticate(String wwwAuthenticate) {

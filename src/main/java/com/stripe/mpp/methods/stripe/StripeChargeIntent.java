@@ -2,6 +2,7 @@ package com.stripe.mpp.methods.stripe;
 
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
+import com.stripe.mpp.error.InvalidChallengeException;
 import com.stripe.mpp.error.PaymentExpiredException;
 import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.server.Intent;
@@ -10,7 +11,9 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Server-side intent that verifies Stripe payments using Shared Payment Granted Tokens (SPT).
@@ -60,7 +63,14 @@ public class StripeChargeIntent implements Intent {
         if (spt == null) {
             throw new VerificationFailedException("missing spt in payload");
         }
-        String externalId = (String) payload.get("externalId");
+        String credentialExternalId = stringValue(payload.get("externalId"), "externalId");
+        String requestExternalId = stringValue(request.get("externalId"), "externalId");
+        if (requestExternalId != null && !Objects.equals(credentialExternalId, requestExternalId)) {
+            throw new InvalidChallengeException(
+                credential.challenge().id(),
+                "credential externalId does not match request externalId"
+            );
+        }
 
         String expires = credential.challenge().expires();
         if (expires != null) {
@@ -86,8 +96,11 @@ public class StripeChargeIntent implements Intent {
             throw new VerificationFailedException("invalid amount: " + amount);
         }
 
-        Map<String, String> metadata = extractMetadata(request);
-        StripeApi.Result result = stripeApi.createAndConfirm(secretKey, amountMinorUnits, currency, spt, metadata);
+        Map<String, Object> methodDetails = methodDetails(request);
+        List<String> paymentMethodTypes = paymentMethodTypes(methodDetails);
+        Map<String, String> metadata = extractMetadata(methodDetails);
+        StripeApi.Result result = stripeApi.createAndConfirm(
+            secretKey, amountMinorUnits, currency, spt, paymentMethodTypes, metadata);
 
         if ("requires_action".equals(result.status())) {
             throw new com.stripe.mpp.error.PaymentActionRequiredException(
@@ -98,15 +111,43 @@ public class StripeChargeIntent implements Intent {
                 "PaymentIntent " + result.id() + " has status: " + result.status());
         }
 
-        return Receipt.success(result.id(), "stripe", externalId);
+        return Receipt.success(result.id(), "stripe", requestExternalId);
     }
 
     @SuppressWarnings("unchecked")
-    private static Map<String, String> extractMetadata(Map<String, Object> request) {
+    private static Map<String, Object> methodDetails(Map<String, Object> request) {
         Object methodDetails = request.get("methodDetails");
-        if (!(methodDetails instanceof Map<?, ?>)) return null;
-        Object meta = ((Map<?, ?>) methodDetails).get("metadata");
+        if (!(methodDetails instanceof Map<?, ?>)) {
+            throw new VerificationFailedException("missing or invalid methodDetails");
+        }
+        return (Map<String, Object>) methodDetails;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> paymentMethodTypes(Map<String, Object> methodDetails) {
+        Object value = methodDetails.get("paymentMethodTypes");
+        if (!(value instanceof List<?>)) {
+            throw new VerificationFailedException("missing methodDetails.paymentMethodTypes");
+        }
+        try {
+            return StripeMethod.requirePaymentMethodTypes((List<String>) value);
+        } catch (ClassCastException | IllegalArgumentException e) {
+            throw new VerificationFailedException("invalid methodDetails.paymentMethodTypes");
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, String> extractMetadata(Map<String, Object> methodDetails) {
+        Object meta = methodDetails.get("metadata");
         if (!(meta instanceof Map<?, ?>)) return null;
         return (Map<String, String>) meta;
+    }
+
+    private static String stringValue(Object value, String field) {
+        if (value == null) return null;
+        if (!(value instanceof String)) {
+            throw new VerificationFailedException(field + " must be a string");
+        }
+        return (String) value;
     }
 }

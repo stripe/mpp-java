@@ -24,6 +24,7 @@ public class StripeMethod implements Method {
     private final String networkId;
     private final List<String> paymentMethods;
     private final Map<String, String> metadata;
+    private final String externalId;
     private final StripeChargeIntent chargeIntent;
 
     StripeMethod(
@@ -31,11 +32,13 @@ public class StripeMethod implements Method {
         String networkId,
         List<String> paymentMethods,
         Map<String, String> metadata,
+        String externalId,
         int decimals
     ) {
         this.networkId      = networkId;
-        this.paymentMethods = paymentMethods;
+        this.paymentMethods = requirePaymentMethodTypes(paymentMethods);
         this.metadata       = metadata;
+        this.externalId     = externalId;
         this.chargeIntent   = new StripeChargeIntent(secretKey, decimals, new StripeApi());
     }
 
@@ -52,8 +55,9 @@ public class StripeMethod implements Method {
     public static final class Builder {
         private final String secretKey;
         private final String networkId;
-        private List<String> paymentMethods;
+        private List<String> paymentMethods = List.of("card");
         private Map<String, String> metadata;
+        private String externalId;
 
         private Builder(String secretKey, String networkId) {
             this.secretKey = secretKey;
@@ -72,8 +76,14 @@ public class StripeMethod implements Method {
             return this;
         }
 
+        /** External ID bound into the challenge request for receipt attribution. */
+        public Builder externalId(String externalId) {
+            this.externalId = externalId;
+            return this;
+        }
+
         public StripeMethod build() {
-            return new StripeMethod(secretKey, networkId, paymentMethods, metadata, StripeDefaults.DEFAULT_DECIMALS);
+            return new StripeMethod(secretKey, networkId, paymentMethods, metadata, externalId, StripeDefaults.DEFAULT_DECIMALS);
         }
     }
 
@@ -91,11 +101,27 @@ public class StripeMethod implements Method {
     public Map<String, Object> transformRequest(Map<String, Object> request) {
         Map<String, Object> methodDetails = new LinkedHashMap<>();
         methodDetails.put("networkId", networkId);
-        if (paymentMethods != null) methodDetails.put("paymentMethods", paymentMethods);
+        methodDetails.put("paymentMethodTypes", paymentMethods);
         if (metadata       != null) methodDetails.put("metadata", metadata);
 
         Map<String, Object> result = new LinkedHashMap<>(request);
         result.put("methodDetails", methodDetails);
+        if (externalId != null && !result.containsKey("externalId")) result.put("externalId", externalId);
         return result;
+    }
+
+    static List<String> requirePaymentMethodTypes(List<String> paymentMethodTypes) {
+        if (paymentMethodTypes == null) {
+            return List.of("card");
+        }
+        if (paymentMethodTypes.isEmpty()) {
+            throw new IllegalArgumentException("paymentMethods must be a non-empty list");
+        }
+        for (String type : paymentMethodTypes) {
+            if (type == null || type.trim().isEmpty()) {
+                throw new IllegalArgumentException("paymentMethods must contain non-empty strings");
+            }
+        }
+        return List.copyOf(paymentMethodTypes);
     }
 }

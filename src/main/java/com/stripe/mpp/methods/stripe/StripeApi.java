@@ -6,6 +6,7 @@ import com.stripe.model.PaymentIntent;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.mpp.error.VerificationFailedException;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -52,6 +53,7 @@ class StripeApi {
         long amountMinorUnits,
         String currency,
         String spt,
+        List<String> paymentMethodTypes,
         Map<String, String> metadata
     ) {
         try {
@@ -61,13 +63,7 @@ class StripeApi {
                 .setAmount(amountMinorUnits)
                 .setCurrency(currency)
                 .setConfirm(true)
-                .setAutomaticPaymentMethods(
-                    PaymentIntentCreateParams.AutomaticPaymentMethods.builder()
-                        .setEnabled(true)
-                        .setAllowRedirects(
-                            PaymentIntentCreateParams.AutomaticPaymentMethods.AllowRedirects.NEVER)
-                        .build()
-                )
+                .addAllPaymentMethodType(paymentMethodTypes)
                 .putExtraParam("shared_payment_granted_token", spt);
 
             if (metadata != null && !metadata.isEmpty()) {

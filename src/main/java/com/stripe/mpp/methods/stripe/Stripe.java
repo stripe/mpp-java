@@ -29,7 +29,7 @@ public final class Stripe {
      * @param networkId Stripe profile/network identifier sent to the client in the challenge
      */
     public static StripeMethod method(String secretKey, String networkId) {
-        return method(secretKey, networkId, null, null);
+        return method(secretKey, networkId, List.of("card"), null);
     }
 
     /**
@@ -37,7 +37,7 @@ public final class Stripe {
      *
      * @param secretKey      Stripe secret API key
      * @param networkId      Stripe network identifier sent to the client in the challenge
-     * @param paymentMethods allowed payment method types (e.g. {@code List.of("card", "link")}); may be null
+     * @param paymentMethods allowed payment method types (e.g. {@code List.of("card", "link")}); defaults to card if null
      * @param metadata       optional metadata attached to created PaymentIntents; may be null
      */
     public static StripeMethod method(
@@ -47,7 +47,23 @@ public final class Stripe {
         Map<String, String> metadata
     ) {
         return new StripeMethod(
-            secretKey, networkId, paymentMethods, metadata,
+            secretKey, networkId, paymentMethods, metadata, null,
+            StripeDefaults.DEFAULT_DECIMALS
+        );
+    }
+
+    /**
+     * Returns a {@link StripeMethod} with full configuration and a request-bound external ID.
+     */
+    public static StripeMethod method(
+        String secretKey,
+        String networkId,
+        List<String> paymentMethods,
+        Map<String, String> metadata,
+        String externalId
+    ) {
+        return new StripeMethod(
+            secretKey, networkId, paymentMethods, metadata, externalId,
             StripeDefaults.DEFAULT_DECIMALS
         );
     }

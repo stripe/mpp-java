@@ -19,8 +19,9 @@ final class Parsing {
 
     // Matches: key="quoted value" or key=token
     private static final Pattern AUTH_PARAM = Pattern.compile(
-        "(\\w+)=(?:\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"|([^\\s,]+))"
+        "([A-Za-z_][\\w-]*)\\s*=\\s*(?:\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"|([^\\s,]+))"
     );
+    private static final Pattern PAYMENT_METHOD_ID = Pattern.compile("[a-z]+");
 
     // --- Encoding helpers ---
 
@@ -31,7 +32,12 @@ final class Parsing {
 
     /** Decode base64url to a parsed JSON object, or return the raw string if not JSON. */
     static Object b64Decode(String encoded) {
-        byte[] bytes = ChallengeId.b64urlDecode(encoded);
+        byte[] bytes;
+        try {
+            bytes = ChallengeId.b64urlDecode(encoded);
+        } catch (IllegalArgumentException e) {
+            throw new ParseException("Invalid base64url encoding", e);
+        }
         String str = new String(bytes, StandardCharsets.UTF_8);
         try {
             return Json.parse(str);
@@ -54,12 +60,27 @@ final class Parsing {
         Matcher m = AUTH_PARAM.matcher(input);
         while (m.find()) {
             String key = m.group(1);
+            if (params.containsKey(key)) throw new ParseException("Duplicate parameter: " + key);
             String value = m.group(2) != null ? m.group(2) : m.group(3);
             // Unescape backslash sequences in quoted strings
             if (m.group(2) != null) value = value.replace("\\\"", "\"").replace("\\\\", "\\");
             params.put(key, value);
         }
         return params;
+    }
+
+    static String requireString(Map<String, ?> map, String key) {
+        Object value = map.get(key);
+        if (!(value instanceof String) || ((String) value).isEmpty()) {
+            throw new ParseException("Missing " + key);
+        }
+        return (String) value;
+    }
+
+    static void validatePaymentMethodId(String method) {
+        if (method == null || !PAYMENT_METHOD_ID.matcher(method).matches()) {
+            throw new ParseException("Invalid payment method ID");
+        }
     }
 
     private static String quote(String value) {
@@ -98,6 +119,8 @@ final class Parsing {
         Map<String, Object> challengeMap = (Map<String, Object>) challengeObj;
 
         if (!challengeMap.containsKey("id")) throw new ParseException("Credential challenge missing required field: id");
+        String method = requireString(challengeMap, "method");
+        validatePaymentMethodId(method);
 
         Map<String, Object> opaque = null;
         if (challengeMap.get("opaque") instanceof Map) {
@@ -107,7 +130,7 @@ final class Parsing {
         ChallengeEcho echo = new ChallengeEcho(
             str(challengeMap, "id"),
             str(challengeMap, "realm"),
-            str(challengeMap, "method"),
+            method,
             str(challengeMap, "intent"),
             str(challengeMap, "request"),
             str(challengeMap, "expires"),
@@ -118,7 +141,7 @@ final class Parsing {
         Object payload = envelope.get("payload");
         if (payload == null) throw new ParseException("Credential missing required field: payload");
 
-        String source = envelope.get("source") instanceof String ? (String) envelope.get("source") : header;
+        String source = envelope.get("source") instanceof String ? (String) envelope.get("source") : null;
         return new Credential(echo, payload, source);
     }
 
@@ -170,12 +193,14 @@ final class Parsing {
         String reference = str(map, "reference");
         if (reference == null) throw new ParseException("Missing reference");
 
-        String method = str(map, "method");
-        if (method == null) method = "";
+        String method = requireString(map, "method");
+        validatePaymentMethodId(method);
 
         Object extra = map.get("extra");
 
-        return new Receipt(status, timestamp, reference, method, str(map, "external_id"), extra);
+        String externalId = str(map, "externalId");
+        if (externalId == null) externalId = str(map, "external_id");
+        return new Receipt(status, timestamp, reference, method, externalId, extra);
     }
 
     static String formatPaymentReceipt(Receipt receipt) {
@@ -186,7 +211,7 @@ final class Parsing {
         if (receipt.method() != null && !receipt.method().isEmpty())
             map.put("method", receipt.method());
         if (receipt.externalId() != null)
-            map.put("external_id", receipt.externalId());
+            map.put("externalId", receipt.externalId());
         if (receipt.extra() != null)
             map.put("extra", receipt.extra());
         return b64Encode(map);

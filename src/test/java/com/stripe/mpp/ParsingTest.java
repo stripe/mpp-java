@@ -40,10 +40,53 @@ class ParsingTest {
     @Test
     void challengeFromWwwAuthenticateHandlesMultipleSchemes() {
         // Only "Payment" schemes should be parsed
-        String header = "Bearer foo, Payment id=\"abc\", realm=\"x\", method=\"tempo\", intent=\"charge\", request=\"eyJ9\"";
+        String header = "Bearer foo, Payment id=\"abc\", realm=\"x\", method=\"tempo\", intent=\"charge\", request=\"e30\"";
         var challenges = Challenge.fromWwwAuthenticate(header);
         assertThat(challenges).hasSize(1);
         assertThat(challenges.get(0).id()).isEqualTo("abc");
+    }
+
+    @Test
+    void challengeFromWwwAuthenticateHandlesMergedPaymentChallenges() {
+        String first = "Payment id=\"one\", realm=\"api.example.com\", method=\"tempo\", intent=\"charge\", request=\"e30\"";
+        String second = "Payment id=\"two\", realm=\"api.example.com\", method=\"stripe\", intent=\"charge\", request=\"e30\"";
+
+        var challenges = Challenge.fromWwwAuthenticate(first + ", Bearer realm=\"fallback\", " + second);
+
+        assertThat(challenges).hasSize(2);
+        assertThat(challenges.get(0).id()).isEqualTo("one");
+        assertThat(challenges.get(1).id()).isEqualTo("two");
+    }
+
+    @Test
+    void challengeFromWwwAuthenticateIgnoresPaymentInsideQuotes() {
+        String first = "Payment id=\"one\", realm=\"api, Payment realm\", method=\"tempo\", intent=\"charge\", request=\"e30\"";
+        String second = "Payment id=\"two\", realm=\"api.example.com\", method=\"stripe\", intent=\"charge\", request=\"e30\"";
+
+        var challenges = Challenge.fromWwwAuthenticate(first + ", " + second);
+
+        assertThat(challenges).hasSize(2);
+        assertThat(challenges.get(0).realm()).isEqualTo("api, Payment realm");
+        assertThat(challenges.get(1).id()).isEqualTo("two");
+    }
+
+    @Test
+    void challengeFromWwwAuthenticateAllowsWhitespaceAroundParamEquals() {
+        String header = "Payment id=\"abc\", realm = \"api.example.com\", method=\"tempo\", intent=\"charge\", request=\"e30\"";
+
+        var challenges = Challenge.fromWwwAuthenticate(header);
+
+        assertThat(challenges).hasSize(1);
+        assertThat(challenges.get(0).realm()).isEqualTo("api.example.com");
+    }
+
+    @Test
+    void challengeFromWwwAuthenticateRejectsDuplicateParameters() {
+        String header = "Payment id=\"abc\", realm=\"api.example.com\", method=\"tempo\", intent=\"charge\", request=\"e30\", id=\"def\"";
+
+        assertThatThrownBy(() -> Challenge.fromWwwAuthenticate(header))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("Duplicate");
     }
 
     @Test
@@ -116,6 +159,36 @@ class ParsingTest {
             .hasMessageContaining("payload");
     }
 
+    @Test
+    void credentialWithoutSourceParsesAsNullSource() {
+        String json = "{\"challenge\":{\"id\":\"abc\",\"realm\":\"r\",\"method\":\"tempo\",\"intent\":\"charge\"},\"payload\":{}}";
+        String header = "Payment " + ChallengeId.b64urlEncode(json);
+
+        Credential parsed = Credential.fromAuthorization(header);
+
+        assertThat(parsed.source()).isNull();
+    }
+
+    @Test
+    void credentialParseRejectsInvalidMethodId() {
+        String json = "{\"challenge\":{\"id\":\"abc\",\"realm\":\"r\",\"method\":\"Tempo\",\"intent\":\"i\"},\"payload\":{}}";
+        String bad = "Payment " + ChallengeId.b64urlEncode(json);
+
+        assertThatThrownBy(() -> Credential.fromAuthorization(bad))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("payment method ID");
+    }
+
+    @Test
+    void credentialParseRejectsNonStringMethod() {
+        String json = "{\"challenge\":{\"id\":\"abc\",\"realm\":\"r\",\"method\":true,\"intent\":\"i\"},\"payload\":{}}";
+        String bad = "Payment " + ChallengeId.b64urlEncode(json);
+
+        assertThatThrownBy(() -> Credential.fromAuthorization(bad))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("method");
+    }
+
     // --- Receipt (Payment-Receipt) ---
 
     @Test
@@ -134,6 +207,9 @@ class ParsingTest {
         assertThat(parsed.method()).isEqualTo("tempo");
         assertThat(parsed.externalId()).isEqualTo("ext-456");
         assertThat(parsed.timestamp()).isEqualTo(Instant.parse("2025-01-01T12:00:00Z"));
+        Map<?, ?> wireReceipt = (Map<?, ?>) Parsing.b64Decode(header);
+        assertThat(wireReceipt.get("externalId")).isEqualTo("ext-456");
+        assertThat(wireReceipt.containsKey("external_id")).isFalse();
     }
 
     @Test
@@ -142,5 +218,61 @@ class ParsingTest {
         assertThat(r.status()).isEqualTo("success");
         assertThat(r.reference()).isEqualTo("ref-789");
         assertThat(r.method()).isEqualTo("tempo");
+    }
+
+    @Test
+    void receiptSuccessFactoryPreservesExtra() {
+        Map<String, Object> extra = Map.of("trace_id", "trace-123");
+
+        Receipt r = Receipt.success("ref-789", "tempo", "ext-000", extra);
+
+        assertThat(r.extra()).isSameAs(extra);
+    }
+
+    @Test
+    void receiptParseAcceptsLegacyExternalIdKey() {
+        String header = ChallengeId.b64urlEncode(
+            "{\"method\":\"tempo\",\"reference\":\"ref-123\",\"status\":\"success\","
+                + "\"timestamp\":\"2025-01-01T12:00:00Z\",\"external_id\":\"legacy-ext\"}"
+        );
+
+        Receipt parsed = Receipt.fromPaymentReceipt(header);
+
+        assertThat(parsed.externalId()).isEqualTo("legacy-ext");
+    }
+
+    @Test
+    void receiptParseRejectsMissingMethod() {
+        String header = ChallengeId.b64urlEncode(
+            "{\"reference\":\"ref-123\",\"status\":\"success\",\"timestamp\":\"2025-01-01T12:00:00Z\"}"
+        );
+
+        assertThatThrownBy(() -> Receipt.fromPaymentReceipt(header))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("method");
+    }
+
+    @Test
+    void receiptParseRejectsInvalidMethodId() {
+        String header = ChallengeId.b64urlEncode(
+            "{\"method\":\"tempo-pay\",\"reference\":\"ref-123\",\"status\":\"success\","
+                + "\"timestamp\":\"2025-01-01T12:00:00Z\"}"
+        );
+
+        assertThatThrownBy(() -> Receipt.fromPaymentReceipt(header))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("payment method ID");
+    }
+
+    @Test
+    void receiptParseRejectsNonStringMethod() {
+        String header = ChallengeId.b64urlEncode(
+            "{\"method\":true,\"reference\":\"ref-123\",\"status\":\"success\","
+                + "\"timestamp\":\"2025-01-01T12:00:00Z\"}"
+        );
+
+        assertThatThrownBy(() -> Receipt.fromPaymentReceipt(header))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("method");
     }
 }

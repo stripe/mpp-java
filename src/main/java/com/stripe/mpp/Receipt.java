@@ -34,8 +34,12 @@ public final class Receipt {
     /**
      * Create a success receipt with the current timestamp.
      */
+    public static Receipt success(String reference, String method, String externalId, Object extra) {
+        return new Receipt("success", Instant.now(), reference, method, externalId, extra);
+    }
+
     public static Receipt success(String reference, String method, String externalId) {
-        return new Receipt("success", Instant.now(), reference, method, externalId, null);
+        return success(reference, method, externalId, null);
     }
 
     public static Receipt success(String reference, String method) {

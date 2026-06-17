@@ -11,7 +11,7 @@ Java SDK for the [**Machine Payments Protocol**](https://mpp.dev)
 ### Gradle
 
 ```groovy
-implementation 'com.stripe:mpp-java:0.1.0'
+implementation 'com.stripe:mpp-java:0.1.1'
 ```
 
 ### Maven
@@ -20,7 +20,7 @@ implementation 'com.stripe:mpp-java:0.1.0'
 <dependency>
     <groupId>com.stripe</groupId>
     <artifactId>mpp-java</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 
@@ -99,3 +99,17 @@ if (result instanceof VerifyResult.Challenged) {
     // serve your content
 }
 ```
+
+## Releasing
+
+1. Create a release branch and update `VERSION_NAME` in `gradle.properties` and the version references in this README.
+2. Open a PR and let CI pass.
+3. Merge the PR to `main`.
+4. Tag the merge commit and push the tag:
+   ```sh
+   git checkout main && git pull
+   git tag v<version>
+   git push origin v<version>
+   ```
+5. The [Publish workflow](.github/workflows/publish.yml) will automatically build, test across Java 11/17/21, and publish to Maven Central.
+6. Verify the artifact appears on [Maven Central](https://central.sonatype.com/artifact/com.stripe/mpp-java).

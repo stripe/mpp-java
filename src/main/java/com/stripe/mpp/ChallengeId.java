@@ -61,7 +61,12 @@ public final class ChallengeId {
     /** Decode a base64url string to a JSON map. */
     @SuppressWarnings("unchecked")
     public static Map<String, Object> b64urlDecodeToMap(String encoded) {
-        byte[] bytes = b64urlDecode(encoded);
+        byte[] bytes;
+        try {
+            bytes = b64urlDecode(encoded);
+        } catch (IllegalArgumentException e) {
+            throw new com.stripe.mpp.error.ParseException("Invalid base64url encoding", e);
+        }
         String json = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
         try {
             return Json.MAPPER.readValue(json, Map.class);

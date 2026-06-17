@@ -19,7 +19,7 @@ import java.util.function.Function;
  * StripeClientMethod client = new StripeClientMethod(
  *     params -> stripeSDK.createSharedPaymentToken(params),
  *     "card",      // optional payment method type
- *     "order-123"  // optional external ID for reconciliation
+ *     "order-123"  // optional local external ID; must also be bound in the challenge request
  * );
  *
  * // On a 402 response:
@@ -114,7 +114,12 @@ public class StripeClientMethod {
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("spt", sptId);
-        if (externalId != null) payload.put("externalId", externalId);
+        Object requestExternalId = request.get("externalId");
+        if (requestExternalId instanceof String) {
+            payload.put("externalId", requestExternalId);
+        } else if (externalId != null) {
+            throw new IllegalArgumentException("externalId must be bound by the challenge request");
+        }
 
         return new Credential(challenge.toEcho(), payload, null);
     }

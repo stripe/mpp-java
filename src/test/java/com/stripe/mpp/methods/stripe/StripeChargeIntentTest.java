@@ -3,11 +3,13 @@ package com.stripe.mpp.methods.stripe;
 import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
+import com.stripe.mpp.error.InvalidChallengeException;
 import com.stripe.mpp.error.PaymentActionRequiredException;
 import com.stripe.mpp.error.PaymentExpiredException;
 import com.stripe.mpp.error.VerificationFailedException;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,11 +18,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class StripeChargeIntentTest {
 
     static final Map<String, Object> REQUEST = Map.of(
-        "amount", "10.00", "currency", "usd", "recipient", "net_xxx"
+        "amount", "10.00", "currency", "usd", "recipient", "net_xxx",
+        "methodDetails", Map.of("paymentMethodTypes", List.of("card"))
     );
     static final Map<String, Object> REQUEST_WITH_METADATA = Map.of(
         "amount", "10.00", "currency", "usd", "recipient", "net_xxx",
-        "methodDetails", Map.of("networkId", "net_xxx", "metadata", Map.of("orderId", "order-42"))
+        "methodDetails", Map.of(
+            "networkId", "net_xxx",
+            "paymentMethodTypes", List.of("card", "link"),
+            "metadata", Map.of("orderId", "order-42")
+        )
+    );
+    static final Map<String, Object> REQUEST_WITH_EXTERNAL_ID = Map.of(
+        "amount", "10.00", "currency", "usd", "recipient", "net_xxx",
+        "externalId", "server-order-123",
+        "methodDetails", Map.of("paymentMethodTypes", List.of("card"))
     );
     static final ChallengeEcho ECHO = new ChallengeEcho(
         "chal-id", "api.example.com", "stripe", "charge", "e30", "2099-01-01T00:00:00Z", null, null
@@ -44,6 +56,8 @@ class StripeChargeIntentTest {
         String lastSpt;
         long lastAmount;
         String lastCurrency;
+        List<String> lastPaymentMethodTypes;
+        Map<String, String> lastMetadata;
 
         StubStripeApi(StripeApi.Result result) {
             this.result = result;
@@ -52,11 +66,13 @@ class StripeChargeIntentTest {
         @Override
         StripeApi.Result createAndConfirm(
             String secretKey, long amountMinorUnits, String currency,
-            String spt, Map<String, String> metadata
+            String spt, List<String> paymentMethodTypes, Map<String, String> metadata
         ) {
             this.lastSpt      = spt;
             this.lastAmount   = amountMinorUnits;
             this.lastCurrency = currency;
+            this.lastPaymentMethodTypes = paymentMethodTypes;
+            this.lastMetadata = metadata;
             return result;
         }
     }
@@ -81,9 +97,31 @@ class StripeChargeIntentTest {
     @Test
     void externalIdIncludedInReceipt() {
         StubStripeApi api = new StubStripeApi(new StripeApi.Result("pi_abc123", "succeeded"));
-        Receipt receipt = intent(api).verify(credentialWithExternalId("spt_xxx", "order-42"), REQUEST);
+        Receipt receipt = intent(api).verify(
+            credentialWithExternalId("spt_xxx", "server-order-123"),
+            REQUEST_WITH_EXTERNAL_ID);
 
-        assertThat(receipt.externalId()).isEqualTo("order-42");
+        assertThat(receipt.externalId()).isEqualTo("server-order-123");
+    }
+
+    @Test
+    void forgedPayloadExternalIdThrows() {
+        StubStripeApi api = new StubStripeApi(new StripeApi.Result("pi_abc123", "succeeded"));
+
+        assertThatThrownBy(() -> intent(api).verify(
+                credentialWithExternalId("spt_xxx", "attacker-order-999"),
+                REQUEST_WITH_EXTERNAL_ID))
+            .isInstanceOf(InvalidChallengeException.class)
+            .hasMessageContaining("externalId");
+    }
+
+    @Test
+    void payloadOnlyExternalIdIsNotAttributed() {
+        StubStripeApi api = new StubStripeApi(new StripeApi.Result("pi_abc123", "succeeded"));
+
+        Receipt receipt = intent(api).verify(credentialWithExternalId("spt_xxx", "attacker-order-999"), REQUEST);
+
+        assertThat(receipt.externalId()).isNull();
     }
 
     @Test
@@ -94,6 +132,7 @@ class StripeChargeIntentTest {
         assertThat(api.lastAmount).isEqualTo(1000L); // "10.00" * 100 = 1000 cents
         assertThat(api.lastCurrency).isEqualTo("usd");
         assertThat(api.lastSpt).isEqualTo("spt_xxx");
+        assertThat(api.lastPaymentMethodTypes).containsExactly("card");
     }
 
     @Test
@@ -149,7 +188,7 @@ class StripeChargeIntentTest {
             @Override
             StripeApi.Result createAndConfirm(
                 String secretKey, long amountMinorUnits, String currency,
-                String spt, Map<String, String> metadata
+                String spt, List<String> paymentMethodTypes, Map<String, String> metadata
             ) {
                 throw new VerificationFailedException("card_declined");
             }
@@ -163,8 +202,22 @@ class StripeChargeIntentTest {
     @Test
     void metadataPassedToStripeApi() {
         StubStripeApi api = new StubStripeApi(new StripeApi.Result("pi_abc123", "succeeded"));
-        // Metadata extraction is tested indirectly — just verify no exception
         Receipt receipt = intent(api).verify(credential("spt_xxx"), REQUEST_WITH_METADATA);
         assertThat(receipt.status()).isEqualTo("success");
+        assertThat(api.lastPaymentMethodTypes).containsExactly("card", "link");
+        assertThat(api.lastMetadata).containsEntry("orderId", "order-42");
+    }
+
+    @Test
+    void missingPaymentMethodTypesThrows() {
+        StubStripeApi api = new StubStripeApi(new StripeApi.Result("pi_abc123", "succeeded"));
+        Map<String, Object> badRequest = Map.of(
+            "amount", "10.00", "currency", "usd", "recipient", "net_xxx",
+            "methodDetails", Map.of("networkId", "net_xxx")
+        );
+
+        assertThatThrownBy(() -> intent(api).verify(credential("spt_xxx"), badRequest))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("paymentMethodTypes");
     }
 }

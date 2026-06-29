@@ -99,8 +99,9 @@ public class StripeChargeIntent implements Intent {
         Map<String, Object> methodDetails = methodDetails(request);
         List<String> paymentMethodTypes = paymentMethodTypes(methodDetails);
         Map<String, String> metadata = extractMetadata(methodDetails);
+        String challengeId = credential.challenge().id();
         StripeApi.Result result = stripeApi.createAndConfirm(
-            secretKey, amountMinorUnits, currency, spt, paymentMethodTypes, metadata);
+            secretKey, amountMinorUnits, currency, spt, paymentMethodTypes, metadata, challengeId);
 
         if ("requires_action".equals(result.status())) {
             throw new com.stripe.mpp.error.PaymentActionRequiredException(

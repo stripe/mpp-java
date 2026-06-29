@@ -3,6 +3,7 @@ package com.stripe.mpp.methods.stripe;
 import com.stripe.StripeClient;
 import com.stripe.exception.StripeException;
 import com.stripe.model.PaymentIntent;
+import com.stripe.net.RequestOptions;
 import com.stripe.param.PaymentIntentCreateParams;
 import com.stripe.mpp.error.VerificationFailedException;
 
@@ -54,7 +55,8 @@ class StripeApi {
         String currency,
         String spt,
         List<String> paymentMethodTypes,
-        Map<String, String> metadata
+        Map<String, String> metadata,
+        String challengeId
     ) {
         try {
             StripeClient client = new StripeClient(secretKey);
@@ -70,11 +72,19 @@ class StripeApi {
                 builder.putAllMetadata(metadata);
             }
 
-            PaymentIntent pi = client.paymentIntents().create(builder.build());
+            RequestOptions options = RequestOptions.builder()
+                .setIdempotencyKey(buildIdempotencyKey(challengeId, spt))
+                .build();
+
+            PaymentIntent pi = client.paymentIntents().create(builder.build(), options);
             return new Result(pi.getId(), pi.getStatus());
 
         } catch (StripeException e) {
             throw new VerificationFailedException(e.getMessage());
         }
+    }
+
+    static String buildIdempotencyKey(String challengeId, String spt) {
+        return "mpp-java_" + challengeId + "_" + spt;
     }
 }

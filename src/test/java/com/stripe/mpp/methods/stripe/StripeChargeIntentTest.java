@@ -58,6 +58,7 @@ class StripeChargeIntentTest {
         String lastCurrency;
         List<String> lastPaymentMethodTypes;
         Map<String, String> lastMetadata;
+        String lastChallengeId;
 
         StubStripeApi(StripeApi.Result result) {
             this.result = result;
@@ -66,13 +67,15 @@ class StripeChargeIntentTest {
         @Override
         StripeApi.Result createAndConfirm(
             String secretKey, long amountMinorUnits, String currency,
-            String spt, List<String> paymentMethodTypes, Map<String, String> metadata
+            String spt, List<String> paymentMethodTypes, Map<String, String> metadata,
+            String challengeId
         ) {
             this.lastSpt      = spt;
             this.lastAmount   = amountMinorUnits;
             this.lastCurrency = currency;
             this.lastPaymentMethodTypes = paymentMethodTypes;
             this.lastMetadata = metadata;
+            this.lastChallengeId = challengeId;
             return result;
         }
     }
@@ -188,7 +191,8 @@ class StripeChargeIntentTest {
             @Override
             StripeApi.Result createAndConfirm(
                 String secretKey, long amountMinorUnits, String currency,
-                String spt, List<String> paymentMethodTypes, Map<String, String> metadata
+                String spt, List<String> paymentMethodTypes, Map<String, String> metadata,
+                String challengeId
             ) {
                 throw new VerificationFailedException("card_declined");
             }
@@ -206,6 +210,41 @@ class StripeChargeIntentTest {
         assertThat(receipt.status()).isEqualTo("success");
         assertThat(api.lastPaymentMethodTypes).containsExactly("card", "link");
         assertThat(api.lastMetadata).containsEntry("orderId", "order-42");
+    }
+
+    @Test
+    void challengeIdPassedForIdempotency() {
+        StubStripeApi api = new StubStripeApi(new StripeApi.Result("pi_abc123", "succeeded"));
+        intent(api).verify(credential("spt_xxx"), REQUEST);
+
+        assertThat(api.lastChallengeId).isEqualTo("chal-id");
+    }
+
+    @Test
+    void idempotencyKeyDerivedFromChallengeIdAndSpt() {
+        String key = StripeApi.buildIdempotencyKey("chal-id", "spt_xxx");
+        assertThat(key).isEqualTo("mpp-java_chal-id_spt_xxx");
+    }
+
+    @Test
+    void idempotencyKeyDeterministic() {
+        String key1 = StripeApi.buildIdempotencyKey("chal-abc", "spt_123");
+        String key2 = StripeApi.buildIdempotencyKey("chal-abc", "spt_123");
+        assertThat(key1).isEqualTo(key2);
+    }
+
+    @Test
+    void idempotencyKeyDiffersForDifferentChallenges() {
+        String key1 = StripeApi.buildIdempotencyKey("chal-abc", "spt_123");
+        String key2 = StripeApi.buildIdempotencyKey("chal-def", "spt_123");
+        assertThat(key1).isNotEqualTo(key2);
+    }
+
+    @Test
+    void idempotencyKeyDiffersForDifferentSpts() {
+        String key1 = StripeApi.buildIdempotencyKey("chal-abc", "spt_123");
+        String key2 = StripeApi.buildIdempotencyKey("chal-abc", "spt_456");
+        assertThat(key1).isNotEqualTo(key2);
     }
 
     @Test

@@ -50,6 +50,9 @@ class ValueTypesTest {
         assertThat(challenge.expires()).isEqualTo("2099-01-01T00:00:00Z");
         assertThat(challenge.description()).isEqualTo("description");
         assertThat(challenge.opaque()).isSameAs(opaque);
+        assertThat(challenge.opaqueRaw()).isEqualTo(
+            ChallengeId.b64urlEncode(Json.compact(opaque))
+        );
         assertThat(challenge).isEqualTo(equivalent).hasSameHashCodeAs(equivalent);
     }
 
@@ -85,7 +88,22 @@ class ValueTypesTest {
         assertThat(echo.expires()).isEqualTo("2099-01-01T00:00:00Z");
         assertThat(echo.digest()).isEqualTo("sha-256=abc");
         assertThat(echo.opaque()).isSameAs(opaque);
+        assertThat(echo.opaqueRaw()).isEqualTo(
+            ChallengeId.b64urlEncode(Json.compact(opaque))
+        );
         assertThat(echo).isEqualTo(equivalent).hasSameHashCodeAs(equivalent);
+    }
+
+    @Test
+    void challengeEchoCanPreserveRawOpaqueWithoutDecodedMetadata() {
+        String opaque = ChallengeId.b64urlEncode("xy wrong");
+
+        ChallengeEcho echo = ChallengeEcho.fromWire(
+            "id", "realm", "tempo", "charge", "request", null, null, opaque
+        );
+
+        assertThat(echo.opaqueRaw()).isEqualTo(opaque);
+        assertThat(echo.opaque()).isNull();
     }
 
     @Test

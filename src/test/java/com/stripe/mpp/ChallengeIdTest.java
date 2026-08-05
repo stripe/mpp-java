@@ -55,4 +55,22 @@ class ChallengeIdTest {
         String withoutExpires = ChallengeId.generate("secret", "example.com", "tempo", "charge", request, null, null, null);
         assertThat(withExpires).isNotEqualTo(withoutExpires);
     }
+
+    @Test
+    void rawOpaqueUsesTheExactWireValue() {
+        Map<String, Object> request = Map.of("amount", "10");
+        Map<String, Object> meta = Map.of("route", "/paid");
+        String opaque = ChallengeId.b64urlEncode(Json.compact(meta));
+
+        assertThat(ChallengeId.generateWithOpaque(
+            "secret", "example.com", "tempo", "charge", request, null, null, opaque
+        )).isEqualTo(ChallengeId.generate(
+            "secret", "example.com", "tempo", "charge", request, null, null, meta
+        ));
+        assertThat(ChallengeId.generateWithOpaque(
+            "secret", "example.com", "tempo", "charge", request, null, null, "raw"
+        )).isNotEqualTo(ChallengeId.generateWithOpaque(
+            "secret", "example.com", "tempo", "charge", request, null, null, "RAW"
+        ));
+    }
 }

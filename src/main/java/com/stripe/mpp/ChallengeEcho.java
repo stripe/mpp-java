@@ -15,6 +15,7 @@ public final class ChallengeEcho {
     private final String expires;
     private final String digest;
     private final Map<String, Object> opaque;
+    private final String opaqueRaw;
 
     public ChallengeEcho(
         String id,
@@ -26,6 +27,23 @@ public final class ChallengeEcho {
         String digest,
         Map<String, Object> opaque
     ) {
+        this(
+            id, realm, method, intent, request, expires, digest, opaque,
+            opaque != null ? ChallengeId.b64urlEncode(Json.compact(opaque)) : null
+        );
+    }
+
+    private ChallengeEcho(
+        String id,
+        String realm,
+        String method,
+        String intent,
+        String request,
+        String expires,
+        String digest,
+        Map<String, Object> opaque,
+        String opaqueRaw
+    ) {
         this.id = id;
         this.realm = realm;
         this.method = method;
@@ -34,6 +52,40 @@ public final class ChallengeEcho {
         this.expires = expires;
         this.digest = digest;
         this.opaque = opaque;
+        this.opaqueRaw = opaqueRaw;
+    }
+
+    /** Create an echo with an exact wire-format opaque value. */
+    public static ChallengeEcho fromWire(
+        String id,
+        String realm,
+        String method,
+        String intent,
+        String request,
+        String expires,
+        String digest,
+        String opaqueRaw
+    ) {
+        return fromWire(
+            id, realm, method, intent, request, expires, digest,
+            opaqueRaw, Parsing.decodeOpaque(opaqueRaw)
+        );
+    }
+
+    static ChallengeEcho fromWire(
+        String id,
+        String realm,
+        String method,
+        String intent,
+        String request,
+        String expires,
+        String digest,
+        String opaqueRaw,
+        Map<String, Object> opaque
+    ) {
+        return new ChallengeEcho(
+            id, realm, method, intent, request, expires, digest, opaque, opaqueRaw
+        );
     }
 
     public String id() { return id; }
@@ -43,7 +95,10 @@ public final class ChallengeEcho {
     public String request() { return request; }
     public String expires() { return expires; }
     public String digest() { return digest; }
+    /** Decoded metadata when the opaque value contains a JSON object. */
     public Map<String, Object> opaque() { return opaque; }
+    /** Exact opaque value echoed on the wire. */
+    public String opaqueRaw() { return opaqueRaw; }
 
     @Override
     public boolean equals(Object o) {
@@ -57,12 +112,13 @@ public final class ChallengeEcho {
             && Objects.equals(request, that.request)
             && Objects.equals(expires, that.expires)
             && Objects.equals(digest, that.digest)
-            && Objects.equals(opaque, that.opaque);
+            && Objects.equals(opaque, that.opaque)
+            && Objects.equals(opaqueRaw, that.opaqueRaw);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, realm, method, intent, request, expires, digest, opaque);
+        return Objects.hash(id, realm, method, intent, request, expires, digest, opaque, opaqueRaw);
     }
 
     @Override
@@ -76,6 +132,7 @@ public final class ChallengeEcho {
             + ", expires=" + expires
             + ", digest=" + digest
             + ", opaque=" + opaque
+            + ", opaqueRaw=" + opaqueRaw
             + "]";
     }
 }

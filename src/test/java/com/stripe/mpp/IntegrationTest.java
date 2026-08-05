@@ -5,6 +5,7 @@ import com.stripe.mpp.error.PaymentException;
 import com.stripe.mpp.server.*;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -65,6 +66,23 @@ class IntegrationTest {
         @Override
         public List<Class<? extends Intent>> intents() {
             return List.of(SplitChargeIntent.class);
+        }
+    }
+
+    static class HybridSplitIntent extends SplitChargeIntent {
+        int legacyVerifications;
+
+        @Override
+        public Receipt verify(Credential credential, Map<String, Object> request) {
+            legacyVerifications++;
+            return Receipt.success("legacy-ref", "test");
+        }
+    }
+
+    static class HybridSplitMethod implements Method {
+        @Override public String name() { return "test"; }
+        @Override public List<Class<? extends Intent>> intents() {
+            return List.of(HybridSplitIntent.class);
         }
     }
 
@@ -164,6 +182,110 @@ class IntegrationTest {
         );
 
         assertThat(receipt.reference()).isEqualTo("tx-ref-12345");
+    }
+
+    @Test
+    void splitHooksTakePrecedenceOverAnOverriddenLegacyVerify() {
+        MppHandler server = Mpp.create(
+            new HybridSplitMethod(), "api.example.com", "super-secret"
+        );
+        HybridSplitIntent intent = new HybridSplitIntent();
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        )).challenge();
+        Credential credential = new Credential(
+            challenge.toEcho(), Map.of("sig", "x"), null
+        );
+
+        Receipt standalone = server.broadcastCredential(credential, intent);
+        VerifyResult combined = server.charge(
+            credential.toAuthorization(), intent, "10.000000", "USDC", "0xRecipient",
+            null, null, challenge.expires()
+        );
+
+        assertThat(standalone.reference()).isEqualTo("split-ref");
+        assertThat(combined).isInstanceOf(VerifyResult.Verified.class);
+        assertThat(((VerifyResult.Verified) combined).receipt().reference()).isEqualTo("split-ref");
+        assertThat(intent.validations).isEqualTo(2);
+        assertThat(intent.broadcasts).isEqualTo(2);
+        assertThat(intent.legacyVerifications).isZero();
+    }
+
+    @Test
+    void specOpaqueCredentialPassesRouteBindingAndSplitLifecycle() {
+        String secret = "super-secret";
+        SplitChargeIntent intent = new SplitChargeIntent();
+        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", secret);
+        Map<String, Object> meta = Map.of("route", "/api/photo");
+        String expires = "2099-01-01T00:00:00Z";
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient",
+            null, meta, expires
+        )).challenge();
+        Map<String, Object> echo = new LinkedHashMap<>();
+        echo.put("id", challenge.id());
+        echo.put("realm", challenge.realm());
+        echo.put("method", challenge.method());
+        echo.put("intent", challenge.intent());
+        echo.put("request", challenge.requestB64());
+        echo.put("expires", challenge.expires());
+        echo.put("opaque", challenge.opaqueRaw());
+        String authorization = "Payment " + ChallengeId.b64urlEncode(Json.compact(Map.of(
+            "challenge", echo,
+            "payload", Map.of("sig", "x")
+        )));
+
+        VerifyResult result = server.charge(
+            authorization, intent, "10.000000", "USDC", "0xRecipient",
+            null, meta, expires
+        );
+
+        assertThat(result).isInstanceOf(VerifyResult.Verified.class);
+        assertThat(intent.validations).isEqualTo(1);
+        assertThat(intent.broadcasts).isEqualTo(1);
+    }
+
+    @Test
+    void differentOpaqueMetadataForcesAChallengeBeforeLifecycleHooks() {
+        SplitChargeIntent intent = new SplitChargeIntent();
+        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", "super-secret");
+        String expires = "2099-01-01T00:00:00Z";
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient",
+            null, Map.of("route", "/api/photo"), expires
+        )).challenge();
+
+        VerifyResult result = server.charge(
+            new Credential(challenge.toEcho(), Map.of("sig", "x"), null).toAuthorization(),
+            intent, "10.000000", "USDC", "0xRecipient",
+            null, Map.of("route", "/api/video"), expires
+        );
+
+        assertThat(result).isInstanceOf(VerifyResult.Challenged.class);
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
+    }
+
+    @Test
+    void standaloneStringApiNormalizesMalformedEchoRequest() {
+        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", "super-secret");
+        SplitChargeIntent intent = new SplitChargeIntent();
+        Map<String, Object> challenge = new LinkedHashMap<>();
+        challenge.put("id", "untrusted");
+        challenge.put("realm", "api.example.com");
+        challenge.put("method", "test");
+        challenge.put("intent", "charge");
+        challenge.put("request", "not-base64url!");
+        challenge.put("expires", "2099-01-01T00:00:00Z");
+        String authorization = "Payment " + ChallengeId.b64urlEncode(Json.compact(Map.of(
+            "challenge", challenge,
+            "payload", Map.of("sig", "x")
+        )));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> server.validateCredential(authorization, intent)
+        ).isInstanceOf(com.stripe.mpp.error.MalformedCredentialException.class)
+            .hasMessageContaining("base64url");
     }
 
     @Test

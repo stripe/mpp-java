@@ -1,7 +1,7 @@
 # Tempo relay charge
 
-This example runs a Java HTTP endpoint that issues a Moderato pathUSD charge, validates the
-credential through Tempo API, and asks the relay to finalize it.
+This example runs a Java HTTP endpoint that issues a route-bound Moderato pathUSD charge,
+validates the credential through Tempo API, and asks the relay to finalize it.
 
 ```sh
 export TEMPO_API_KEY=tempo:sk:...

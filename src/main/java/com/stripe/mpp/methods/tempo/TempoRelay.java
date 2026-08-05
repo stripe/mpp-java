@@ -155,9 +155,7 @@ public final class TempoRelay {
         challenge.put("request", ChallengeId.b64urlDecodeToMap(echo.request()));
         if (echo.expires() != null) challenge.put("expires", echo.expires());
         if (echo.digest() != null) challenge.put("digest", echo.digest());
-        if (echo.opaque() != null) {
-            challenge.put("opaque", ChallengeId.b64urlEncode(Json.compact(echo.opaque())));
-        }
+        if (echo.opaqueRaw() != null) challenge.put("opaque", echo.opaqueRaw());
 
         Map<String, Object> input = new LinkedHashMap<>();
         input.put("challenge", challenge);

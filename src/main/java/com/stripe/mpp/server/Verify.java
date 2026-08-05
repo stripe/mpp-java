@@ -15,6 +15,7 @@ import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Stateless payment verification logic.
@@ -58,12 +59,14 @@ public final class Verify {
         }
 
         try {
-            assertCredential(credential, intent, request, realm, secretKey, methodName, meta);
+            assertCredential(
+                credential, intent, request, realm, secretKey, methodName, opaqueFromMeta(meta)
+            );
         } catch (ParseException | InvalidChallengeException | PaymentExpiredException e) {
             return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
         }
 
-        Receipt receipt = intent.verify(credential, request);
+        Receipt receipt = IntentLifecycle.broadcast(intent, credential, request);
         return new VerifyResult.Verified(credential, receipt);
     }
 
@@ -79,7 +82,7 @@ public final class Verify {
         String realm,
         String secretKey,
         String methodName,
-        Map<String, Object> meta
+        String expectedOpaque
     ) {
         ChallengeEcho echo = credential.challenge();
         if (echo == null || echo.id() == null || echo.realm() == null
@@ -90,9 +93,9 @@ public final class Verify {
         Map<String, Object> echoRequest = (echo.request() == null || echo.request().isEmpty())
             ? Map.of()
             : ChallengeId.b64urlDecodeToMap(echo.request());
-        Map<String, Object> echoOpaque = echo.opaque();
+        String echoOpaque = echo.opaqueRaw();
 
-        String expectedId = ChallengeId.generate(
+        String expectedId = ChallengeId.generateWithOpaque(
             secretKey, echo.realm(), echo.method(), echo.intent(),
             echoRequest, echo.expires(), echo.digest(), echoOpaque
         );
@@ -110,12 +113,8 @@ public final class Verify {
             throw new InvalidChallengeException(echo.id(), "request does not match");
         }
 
-        if (echoOpaque != null || meta != null) {
-            String echoOpaqueJson = Json.compact(echoOpaque != null ? echoOpaque : Map.of());
-            String metaJson = Json.compact(meta != null ? meta : Map.of());
-            if (!echoOpaqueJson.equals(metaJson)) {
-                throw new InvalidChallengeException(echo.id(), "opaque data does not match");
-            }
+        if (!Objects.equals(echoOpaque, expectedOpaque)) {
+            throw new InvalidChallengeException(echo.id(), "opaque data does not match");
         }
 
         if (echo.expires() == null) {
@@ -146,8 +145,12 @@ public final class Verify {
             : ChallengeId.b64urlDecodeToMap(echo.request());
         return assertCredential(
             credential, intent, request, realm, secretKey, methodName,
-            echo == null ? null : echo.opaque()
+            echo == null ? null : echo.opaqueRaw()
         );
+    }
+
+    private static String opaqueFromMeta(Map<String, Object> meta) {
+        return meta == null ? null : ChallengeId.b64urlEncode(Json.compact(meta));
     }
 
     static Challenge createChallenge(

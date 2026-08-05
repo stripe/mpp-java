@@ -81,7 +81,7 @@ public class MppHandler {
     /** Re-validate and perform the terminal payment operation for a parsed credential. */
     public Receipt broadcastCredential(Credential credential, Intent intent) {
         Map<String, Object> request = prepareCredential(credential, intent);
-        return intent.verify(credential, request);
+        return IntentLifecycle.broadcast(intent, credential, request);
     }
 
     /**
@@ -123,7 +123,7 @@ public class MppHandler {
         Map<String, Object> meta,
         String expires
     ) {
-        if (!method.intents().contains(intent.getClass())) {
+        if (!supports(intent)) {
             throw new IllegalArgumentException("Method does not support " + intent.getClass().getSimpleName() + " intents");
         }
 
@@ -231,13 +231,21 @@ public class MppHandler {
     }
 
     private Map<String, Object> prepareCredential(Credential credential, Intent intent) {
-        if (!method.intents().contains(intent.getClass())) {
+        if (!supports(intent)) {
             throw new IllegalArgumentException(
                 "Method does not support " + intent.getClass().getSimpleName() + " intents"
             );
         }
-        return Verify.assertStandaloneCredential(
-            credential, intent, realm, secretKey, method.name()
-        );
+        try {
+            return Verify.assertStandaloneCredential(
+                credential, intent, realm, secretKey, method.name()
+            );
+        } catch (ParseException e) {
+            throw new MalformedCredentialException(e.getMessage());
+        }
+    }
+
+    private boolean supports(Intent intent) {
+        return method.intents().stream().anyMatch(type -> type.isInstance(intent));
     }
 }

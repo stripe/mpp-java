@@ -1,13 +1,17 @@
 package com.stripe.mpp.methods.tempo;
 
+import com.stripe.mpp.Challenge;
 import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.ChallengeId;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Json;
+import com.stripe.mpp.Mpp;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.PaymentExpiredException;
 import com.stripe.mpp.error.VerificationFailedException;
+import com.stripe.mpp.server.MppHandler;
 import com.stripe.mpp.server.ValidationResult;
+import com.stripe.mpp.server.VerifyResult;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -69,6 +73,26 @@ class TempoRelayTest {
     }
 
     @Test
+    void forwardsTheExactSpecOpaqueValue() throws Exception {
+        try (RelayServer server = new RelayServer()) {
+            server.respond(call -> Reply.json(200, Map.of("success", true)));
+            String opaque = ChallengeId.b64urlEncode("xy wrong");
+            String header = "Payment id=\"challenge_opaque\", realm=\"api.example.com\", "
+                + "method=\"tempo\", intent=\"charge\", request=\""
+                + ChallengeId.b64urlEncode(Json.compact(REQUEST))
+                + "\", expires=\"2099-01-01T00:00:00Z\", opaque=\"" + opaque + "\"";
+            Challenge challenge = Challenge.fromWwwAuthenticate(header).get(0);
+            Credential credential = new Credential(
+                challenge.toEcho(), CREDENTIAL.payload(), CREDENTIAL.source()
+            );
+
+            intent(server).validate(credential, REQUEST);
+
+            assertThat(challenge(server.calls.get(0)).get("opaque")).isEqualTo(opaque);
+        }
+    }
+
+    @Test
     void verifyValidatesThenBroadcastsAndReturnsTheRelayReceipt() throws Exception {
         try (RelayServer server = new RelayServer()) {
             server.respond(call -> call.path.endsWith("/validate")
@@ -87,6 +111,40 @@ class TempoRelayTest {
             assertThat(receipt.reference()).isEqualTo("0xabc");
             assertThat(receipt.externalId()).isEqualTo("order_123");
             assertThat(receipt.timestamp()).isEqualTo(Instant.parse("2026-07-22T00:00:00Z"));
+        }
+    }
+
+    @Test
+    void handlerAcceptsTheRelayIntentAndUsesItsSplitLifecycle() throws Exception {
+        try (RelayServer server = new RelayServer()) {
+            server.respond(call -> call.path.endsWith("/validate")
+                ? Reply.json(200, Map.of("success", true))
+                : successReceipt());
+            TempoRelay relay = TempoRelay.builder("test-api-key")
+                .apiBaseUrl(server.baseUrl())
+                .build();
+            TempoMethod method = TempoMethod.of().testnet().relay(relay).build();
+            TempoChargeIntent intent = method.chargeIntent();
+            MppHandler handler = Mpp.create(method, "api.example.com", "secret");
+            Challenge challenge = ((VerifyResult.Challenged) handler.charge(
+                null, intent, "0.010000", TempoDefaults.TESTNET_PATH_USD,
+                "0xabcdef1234567890abcdef1234567890abcdef12"
+            )).challenge();
+            Credential credential = new Credential(
+                challenge.toEcho(), CREDENTIAL.payload(), CREDENTIAL.source()
+            );
+
+            VerifyResult result = handler.charge(
+                credential.toAuthorization(), intent, "0.010000",
+                TempoDefaults.TESTNET_PATH_USD,
+                "0xabcdef1234567890abcdef1234567890abcdef12"
+            );
+
+            assertThat(result).isInstanceOf(VerifyResult.Verified.class);
+            assertThat(server.paths()).containsExactly(
+                "/relay/v1/mpp/validate",
+                "/relay/v1/mpp/broadcast"
+            );
         }
     }
 

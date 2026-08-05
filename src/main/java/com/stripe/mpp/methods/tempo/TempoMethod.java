@@ -38,7 +38,10 @@ public class TempoMethod implements Method {
         this.rpcUrl = rpcUrl;
         this.chainId = chainId;
         this.decimals = decimals;
-        this.chargeIntent = new TempoChargeIntent(rpcUrl, new TempoRpc(), relay);
+        TempoRpc rpc = new TempoRpc();
+        this.chargeIntent = relay == null
+            ? new TempoChargeIntent(rpcUrl, rpc)
+            : new TempoRelayChargeIntent(rpcUrl, rpc, relay);
     }
 
     /** Starts a builder defaulting to Tempo mainnet. Call {@link Builder#testnet()} to switch. */

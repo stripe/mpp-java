@@ -23,8 +23,24 @@ public final class ChallengeId {
         String digest,
         Map<String, Object> opaque
     ) {
+        return generateWithOpaque(
+            secretKey, realm, method, intent, request, expires, digest,
+            opaque != null ? b64urlEncode(Json.compact(opaque)) : null
+        );
+    }
+
+    /** Generate an ID using the exact wire-format opaque value. */
+    public static String generateWithOpaque(
+        String secretKey,
+        String realm,
+        String method,
+        String intent,
+        Map<String, Object> request,
+        String expires,
+        String digest,
+        String opaque
+    ) {
         String requestB64 = b64urlEncode(Json.compact(request));
-        String opaqueB64 = opaque != null ? b64urlEncode(Json.compact(opaque)) : "";
 
         String input = String.join("|",
             realm,
@@ -33,7 +49,7 @@ public final class ChallengeId {
             requestB64,
             expires != null ? expires : "",
             digest != null ? digest : "",
-            opaqueB64
+            opaque != null ? opaque : ""
         );
 
         byte[] hmac = hmacSha256(

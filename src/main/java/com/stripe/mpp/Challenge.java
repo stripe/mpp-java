@@ -20,6 +20,7 @@ public final class Challenge {
     private final String expires;
     private final String description;
     private final Map<String, Object> opaque;
+    private final String opaqueRaw;
 
     public Challenge(
         String id,
@@ -33,6 +34,25 @@ public final class Challenge {
         String description,
         Map<String, Object> opaque
     ) {
+        this(
+            id, method, intent, request, realm, requestB64, digest, expires, description,
+            opaque, opaque != null ? ChallengeId.b64urlEncode(Json.compact(opaque)) : null
+        );
+    }
+
+    private Challenge(
+        String id,
+        String method,
+        String intent,
+        Map<String, Object> request,
+        String realm,
+        String requestB64,
+        String digest,
+        String expires,
+        String description,
+        Map<String, Object> opaque,
+        String opaqueRaw
+    ) {
         this.id = id;
         this.method = method;
         this.intent = intent;
@@ -43,6 +63,7 @@ public final class Challenge {
         this.expires = expires;
         this.description = description;
         this.opaque = opaque;
+        this.opaqueRaw = opaqueRaw;
     }
 
     public String id() { return id; }
@@ -54,7 +75,10 @@ public final class Challenge {
     public String digest() { return digest; }
     public String expires() { return expires; }
     public String description() { return description; }
+    /** Decoded metadata when the opaque value contains a JSON object. */
     public Map<String, Object> opaque() { return opaque; }
+    /** Exact opaque value carried in the challenge header. */
+    public String opaqueRaw() { return opaqueRaw; }
 
     /**
      * Create a new challenge with a cryptographically bound ID.
@@ -100,11 +124,8 @@ public final class Challenge {
                     );
                 }
                 Map<String, Object> request = ChallengeId.b64urlDecodeToMap(requestB64);
-                Map<String, Object> opaque = null;
-                String opaqueVal = params.get("opaque");
-                if (opaqueVal != null && !opaqueVal.isEmpty()) {
-                    opaque = ChallengeId.b64urlDecodeToMap(opaqueVal);
-                }
+                String opaqueRaw = params.get("opaque");
+                Map<String, Object> opaque = Parsing.decodeOpaque(opaqueRaw);
                 challenges.add(new Challenge(
                     id,
                     method,
@@ -115,7 +136,8 @@ public final class Challenge {
                     params.get("digest"),
                     params.get("expires"),
                     params.get("description"),
-                    opaque
+                    opaque,
+                    opaqueRaw
                 ));
             }
         }
@@ -247,7 +269,9 @@ public final class Challenge {
      * Convert to the echo form included inside a Credential.
      */
     public ChallengeEcho toEcho() {
-        return new ChallengeEcho(id, realm, method, intent, requestB64, expires, digest, opaque);
+        return ChallengeEcho.fromWire(
+            id, realm, method, intent, requestB64, expires, digest, opaqueRaw, opaque
+        );
     }
 
     @Override
@@ -264,12 +288,16 @@ public final class Challenge {
             && Objects.equals(digest, challenge.digest)
             && Objects.equals(expires, challenge.expires)
             && Objects.equals(description, challenge.description)
-            && Objects.equals(opaque, challenge.opaque);
+            && Objects.equals(opaque, challenge.opaque)
+            && Objects.equals(opaqueRaw, challenge.opaqueRaw);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, method, intent, request, realm, requestB64, digest, expires, description, opaque);
+        return Objects.hash(
+            id, method, intent, request, realm, requestB64, digest, expires,
+            description, opaque, opaqueRaw
+        );
     }
 
     @Override
@@ -285,6 +313,7 @@ public final class Challenge {
             + ", expires=" + expires
             + ", description=" + description
             + ", opaque=" + opaque
+            + ", opaqueRaw=" + opaqueRaw
             + "]";
     }
 }

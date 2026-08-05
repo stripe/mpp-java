@@ -48,7 +48,8 @@ public final class TempoRelayServer {
 
             ChargeRequest charge = ChargeRequest.of(
                 tempo.chargeIntent(), "0.01", PATH_USD, recipient
-            ).description("Relay-backed Java example");
+            ).description("Relay-backed Java example")
+                .meta(Map.of("route", "/api/photo"));
             try {
                 VerifyResult result = payments.charge(
                     exchange.getRequestHeaders().getFirst("Authorization"), charge

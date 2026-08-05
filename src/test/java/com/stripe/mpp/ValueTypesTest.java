@@ -1,6 +1,7 @@
 package com.stripe.mpp;
 
 import com.stripe.mpp.server.VerifyResult;
+import com.stripe.mpp.server.ValidationResult;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -133,5 +134,28 @@ class ValueTypesTest {
         assertThat(verified.credential()).isSameAs(credential);
         assertThat(verified.receipt()).isSameAs(receipt);
         assertThat(verified).isEqualTo(equivalentVerified).hasSameHashCodeAs(equivalentVerified);
+    }
+
+    @Test
+    void validationResultPreservesRecordStyleApiAndValueSemantics() {
+        ChallengeEcho echo = new ChallengeEcho(
+            "id", "realm", "tempo", "charge", "request", null, null, null
+        );
+        Credential credential = new Credential(echo, Map.of("hash", "0xabc"), "payer");
+        ValidationResult result = new ValidationResult(
+            credential, Map.of("amount", "1"), Map.of("mode", "push")
+        );
+        ValidationResult equivalent = new ValidationResult(
+            credential, Map.of("amount", "1"), Map.of("mode", "push")
+        );
+
+        assertThat(result.credential()).isSameAs(credential);
+        assertThat(result.challenge()).isSameAs(echo);
+        assertThat(result.request()).containsEntry("amount", "1");
+        assertThat(result.details()).containsEntry("mode", "push");
+        assertThat(result.method()).isEqualTo("tempo");
+        assertThat(result.intent()).isEqualTo("charge");
+        assertThat(result.source()).isEqualTo("payer");
+        assertThat(result).isEqualTo(equivalent).hasSameHashCodeAs(equivalent);
     }
 }

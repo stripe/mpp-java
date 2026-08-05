@@ -1,5 +1,6 @@
 package com.stripe.mpp;
 
+import com.stripe.mpp.error.InvalidChallengeException;
 import com.stripe.mpp.error.PaymentException;
 import com.stripe.mpp.server.*;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,36 @@ class IntegrationTest {
         @Override
         public List<Class<? extends Intent>> intents() {
             return List.of(ChargeIntent.class);
+        }
+    }
+
+    static class SplitChargeIntent implements Intent {
+        int validations;
+        int broadcasts;
+
+        @Override
+        public String name() { return "charge"; }
+
+        @Override
+        public ValidationResult validate(Credential credential, Map<String, Object> request) {
+            validations++;
+            return new ValidationResult(credential, request, Map.of("risk", "accepted"));
+        }
+
+        @Override
+        public Receipt broadcast(Credential credential, Map<String, Object> request) {
+            broadcasts++;
+            return Receipt.success("split-ref", "test");
+        }
+    }
+
+    static class SplitMethod implements Method {
+        @Override
+        public String name() { return "test"; }
+
+        @Override
+        public List<Class<? extends Intent>> intents() {
+            return List.of(SplitChargeIntent.class);
         }
     }
 
@@ -94,6 +125,69 @@ class IntegrationTest {
         VerifyResult.Verified verified = (VerifyResult.Verified) step2;
         assertThat(verified.receipt().status()).isEqualTo("success");
         assertThat(verified.receipt().reference()).isEqualTo("tx-ref-12345");
+    }
+
+    @Test
+    void standaloneLifecycleSeparatesValidationAndBroadcast() {
+        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", "super-secret");
+        SplitChargeIntent intent = new SplitChargeIntent();
+        VerifyResult challenged = server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        );
+        Challenge challenge = ((VerifyResult.Challenged) challenged).challenge();
+        Credential credential = new Credential(challenge.toEcho(), Map.of("sig", "x"), "payer");
+
+        ValidationResult validation = server.validateCredential(credential, intent);
+        assertThat(validation.method()).isEqualTo("test");
+        assertThat(validation.intent()).isEqualTo("charge");
+        assertThat(validation.source()).isEqualTo("payer");
+        assertThat(validation.details()).containsEntry("risk", "accepted");
+        assertThat(intent.validations).isEqualTo(1);
+        assertThat(intent.broadcasts).isZero();
+
+        Receipt receipt = server.broadcastCredential(credential, intent);
+        assertThat(receipt.reference()).isEqualTo("split-ref");
+        assertThat(intent.validations).isEqualTo(2);
+        assertThat(intent.broadcasts).isEqualTo(1);
+    }
+
+    @Test
+    void broadcastCredentialSupportsLegacyVerifyOnlyIntents() {
+        MppHandler server = Mpp.create(new TestMethod(), "api.example.com", "super-secret");
+        ChargeIntent intent = new ChargeIntent();
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        )).challenge();
+
+        Receipt receipt = server.broadcastCredential(
+            new Credential(challenge.toEcho(), Map.of("sig", "x"), null), intent
+        );
+
+        assertThat(receipt.reference()).isEqualTo("tx-ref-12345");
+    }
+
+    @Test
+    void standaloneLifecycleRejectsTamperedChallenge() {
+        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", "super-secret");
+        SplitChargeIntent intent = new SplitChargeIntent();
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        )).challenge();
+        ChallengeEcho echo = challenge.toEcho();
+        Credential credential = new Credential(
+            new ChallengeEcho(
+                "tampered", echo.realm(), echo.method(), echo.intent(), echo.request(),
+                echo.expires(), echo.digest(), echo.opaque()
+            ),
+            Map.of("sig", "x"),
+            null
+        );
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> server.validateCredential(credential, intent)
+        ).isInstanceOf(InvalidChallengeException.class);
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
     }
 
     @Test

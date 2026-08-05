@@ -8,6 +8,7 @@ import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * MPP payment method for Tempo.
@@ -15,6 +16,7 @@ import java.util.Map;
  * <pre>{@code
  * TempoMethod tempo = TempoMethod.of().build();              // mainnet
  * TempoMethod tempo = TempoMethod.of().testnet().build();    // testnet
+ * TempoMethod tempo = TempoMethod.of().testnet().relay(apiKey).build();
  * TempoMethod tempo = TempoMethod.custom("http://localhost:8545", 1337).build();
  * }</pre>
  */
@@ -25,14 +27,18 @@ public class TempoMethod implements Method {
     private final TempoChargeIntent chargeIntent;
 
     TempoMethod(String rpcUrl, int chainId) {
-        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS);
+        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null);
     }
 
     TempoMethod(String rpcUrl, int chainId, int decimals) {
+        this(rpcUrl, chainId, decimals, null);
+    }
+
+    TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay) {
         this.rpcUrl = rpcUrl;
         this.chainId = chainId;
         this.decimals = decimals;
-        this.chargeIntent = new TempoChargeIntent(rpcUrl, new TempoRpc());
+        this.chargeIntent = new TempoChargeIntent(rpcUrl, new TempoRpc(), relay);
     }
 
     /** Starts a builder defaulting to Tempo mainnet. Call {@link Builder#testnet()} to switch. */
@@ -48,6 +54,7 @@ public class TempoMethod implements Method {
     public static final class Builder {
         private String rpcUrl   = TempoDefaults.MAINNET_RPC;
         private int    chainId  = TempoDefaults.MAINNET_CHAIN_ID;
+        private TempoRelay relay;
 
         private Builder() {}
 
@@ -63,8 +70,19 @@ public class TempoMethod implements Method {
             return this;
         }
 
+        /** Delegate Tempo charge validation and broadcast to Tempo API's MPP relay. */
+        public Builder relay(String apiKey) {
+            return relay(TempoRelay.builder(apiKey).build());
+        }
+
+        /** Delegate Tempo charge validation and broadcast to the configured MPP relay. */
+        public Builder relay(TempoRelay relay) {
+            this.relay = Objects.requireNonNull(relay, "relay");
+            return this;
+        }
+
         public TempoMethod build() {
-            return new TempoMethod(rpcUrl, chainId);
+            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay);
         }
     }
 

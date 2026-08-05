@@ -1,5 +1,10 @@
 package com.stripe.mpp.server;
 
+import com.stripe.mpp.Credential;
+import com.stripe.mpp.Receipt;
+import com.stripe.mpp.error.MalformedCredentialException;
+import com.stripe.mpp.error.ParseException;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -49,6 +54,52 @@ public class MppHandler {
     public String realm() { return realm; }
     public String secretKey() { return secretKey; }
     public Map<String, Object> defaults() { return defaults; }
+
+    /**
+     * Validate a credential without broadcasting or consuming it.
+     *
+     * <p>The echoed challenge is HMAC-checked, matched to this handler, and checked for expiry
+     * before the intent's non-mutating validation hook runs.
+     */
+    public ValidationResult validateCredential(String authorization, Intent intent) {
+        return validateCredential(parseCredential(authorization), intent);
+    }
+
+    /** Validate a parsed credential without broadcasting or consuming it. */
+    public ValidationResult validateCredential(Credential credential, Intent intent) {
+        Map<String, Object> request = prepareCredential(credential, intent);
+        return intent.validate(credential, request);
+    }
+
+    /**
+     * Re-validate and perform the terminal payment operation for a credential.
+     */
+    public Receipt broadcastCredential(String authorization, Intent intent) {
+        return broadcastCredential(parseCredential(authorization), intent);
+    }
+
+    /** Re-validate and perform the terminal payment operation for a parsed credential. */
+    public Receipt broadcastCredential(Credential credential, Intent intent) {
+        Map<String, Object> request = prepareCredential(credential, intent);
+        return intent.verify(credential, request);
+    }
+
+    /**
+     * Legacy alias for {@link #broadcastCredential(String, Intent)}.
+     *
+     * @deprecated Use {@link #broadcastCredential(String, Intent)}; verification may mutate
+     * payment state.
+     */
+    @Deprecated
+    public Receipt verifyCredential(String authorization, Intent intent) {
+        return broadcastCredential(authorization, intent);
+    }
+
+    /** Legacy parsed-credential alias for {@link #broadcastCredential(Credential, Intent)}. */
+    @Deprecated
+    public Receipt verifyCredential(Credential credential, Intent intent) {
+        return broadcastCredential(credential, intent);
+    }
 
     /**
      * Verify a payment credential or issue a new challenge.
@@ -162,5 +213,31 @@ public class MppHandler {
         if (method.chain()    != null) request.put("chain",     method.chain());
 
         return method.transformRequest(request);
+    }
+
+    private Credential parseCredential(String authorization) {
+        if (authorization == null) {
+            throw new MalformedCredentialException("missing Authorization header");
+        }
+        String payment = Verify.extractPaymentScheme(authorization);
+        if (payment == null) {
+            throw new MalformedCredentialException("missing Payment scheme");
+        }
+        try {
+            return Credential.fromAuthorization(payment);
+        } catch (ParseException e) {
+            throw new MalformedCredentialException(e.getMessage());
+        }
+    }
+
+    private Map<String, Object> prepareCredential(Credential credential, Intent intent) {
+        if (!method.intents().contains(intent.getClass())) {
+            throw new IllegalArgumentException(
+                "Method does not support " + intent.getClass().getSimpleName() + " intents"
+            );
+        }
+        return Verify.assertStandaloneCredential(
+            credential, intent, realm, secretKey, method.name()
+        );
     }
 }

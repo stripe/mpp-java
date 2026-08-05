@@ -4,6 +4,7 @@ import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.server.Intent;
+import com.stripe.mpp.server.ValidationResult;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -41,20 +42,36 @@ public class TempoChargeIntent implements Intent {
     private final int maxRetries;
     private final long retryDelayMs;
     private final TempoRpc rpc;
+    private final TempoRelay relay;
 
     public TempoChargeIntent(String rpcUrl) {
-        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc());
+        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc(), null);
     }
 
     TempoChargeIntent(String rpcUrl, TempoRpc rpc) {
-        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, rpc);
+        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, rpc, null);
     }
 
     TempoChargeIntent(String rpcUrl, int maxRetries, long retryDelayMs, TempoRpc rpc) {
+        this(rpcUrl, maxRetries, retryDelayMs, rpc, null);
+    }
+
+    TempoChargeIntent(String rpcUrl, TempoRpc rpc, TempoRelay relay) {
+        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, rpc, relay);
+    }
+
+    private TempoChargeIntent(
+        String rpcUrl,
+        int maxRetries,
+        long retryDelayMs,
+        TempoRpc rpc,
+        TempoRelay relay
+    ) {
         this.rpcUrl = rpcUrl;
         this.maxRetries = maxRetries;
         this.retryDelayMs = retryDelayMs;
         this.rpc = rpc;
+        this.relay = relay;
     }
 
     @Override
@@ -63,6 +80,8 @@ public class TempoChargeIntent implements Intent {
     @Override
     @SuppressWarnings("unchecked")
     public Receipt verify(Credential credential, Map<String, Object> request) {
+        if (relay != null) return Intent.super.verify(credential, request);
+
         if (!(credential.payload() instanceof Map<?, ?>)) {
             throw new VerificationFailedException("missing or invalid payload");
         }
@@ -78,6 +97,20 @@ public class TempoChargeIntent implements Intent {
             return verifyHash((String) payload.get("hash"), request);
         }
         throw new VerificationFailedException("unrecognized payload type: " + type);
+    }
+
+    /** Validate through the configured relay without broadcasting the payment. */
+    @Override
+    public ValidationResult validate(Credential credential, Map<String, Object> request) {
+        if (relay == null) return Intent.super.validate(credential, request);
+        return relay.validate(credential);
+    }
+
+    /** Finalize the payment through the configured relay. */
+    @Override
+    public Receipt broadcast(Credential credential, Map<String, Object> request) {
+        if (relay == null) return Intent.super.broadcast(credential, request);
+        return relay.broadcast(credential);
     }
 
     private Receipt verifyTransaction(String rawTx, Map<String, Object> request) {

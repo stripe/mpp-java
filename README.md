@@ -66,6 +66,25 @@ Test the endpoint using the [Tempo CLI](https://mpp.dev):
 tempo request https://your-api.com/your-endpoint
 ```
 
+### Tempo API relay
+
+Delegate Moderato charge validation and broadcast to Tempo API by adding the server-side API key
+to the method builder:
+
+```java
+TempoMethod tempo = TempoMethod.of()
+    .testnet()
+    .relay(System.getenv("TEMPO_API_KEY"))
+    .build();
+```
+
+`MppHandler.charge(...)` validates immediately before broadcast. Applications that expose those
+phases separately can use `validateCredential(...)` for a non-mutating pre-check and
+`broadcastCredential(...)` when accepting the payment. The latter always re-validates first.
+`verifyCredential(...)` remains as a deprecated alias for the mutating broadcast path.
+
+See the runnable [Tempo relay example](examples/tempo-relay).
+
 ### Mainnet
 
 ```java

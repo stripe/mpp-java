@@ -99,7 +99,8 @@ class ValueTypesTest {
         String opaque = ChallengeId.b64urlEncode("xy wrong");
 
         ChallengeEcho echo = ChallengeEcho.fromWire(
-            "id", "realm", "tempo", "charge", "request", null, null, opaque
+            "id", "realm", "tempo", "charge", "request", null, null,
+            opaque, Parsing.decodeOpaque(opaque)
         );
 
         assertThat(echo.opaqueRaw()).isEqualTo(opaque);

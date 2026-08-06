@@ -29,7 +29,7 @@ public final class ChallengeEcho {
     ) {
         this(
             id, realm, method, intent, request, expires, digest, opaque,
-            opaque != null ? ChallengeId.b64urlEncode(Json.compact(opaque)) : null
+            ChallengeId.encodeOpaque(opaque)
         );
     }
 
@@ -56,22 +56,6 @@ public final class ChallengeEcho {
     }
 
     /** Create an echo with an exact wire-format opaque value. */
-    public static ChallengeEcho fromWire(
-        String id,
-        String realm,
-        String method,
-        String intent,
-        String request,
-        String expires,
-        String digest,
-        String opaqueRaw
-    ) {
-        return fromWire(
-            id, realm, method, intent, request, expires, digest,
-            opaqueRaw, Parsing.decodeOpaque(opaqueRaw)
-        );
-    }
-
     static ChallengeEcho fromWire(
         String id,
         String realm,

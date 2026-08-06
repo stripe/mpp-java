@@ -185,7 +185,7 @@ class IntegrationTest {
     }
 
     @Test
-    void splitHooksTakePrecedenceOverAnOverriddenLegacyVerify() {
+    void anOverriddenVerifyControlsChargeAndBroadcastPaths() {
         MppHandler server = Mpp.create(
             new HybridSplitMethod(), "api.example.com", "super-secret"
         );
@@ -203,12 +203,12 @@ class IntegrationTest {
             null, null, challenge.expires()
         );
 
-        assertThat(standalone.reference()).isEqualTo("split-ref");
+        assertThat(standalone.reference()).isEqualTo("legacy-ref");
         assertThat(combined).isInstanceOf(VerifyResult.Verified.class);
-        assertThat(((VerifyResult.Verified) combined).receipt().reference()).isEqualTo("split-ref");
-        assertThat(intent.validations).isEqualTo(2);
-        assertThat(intent.broadcasts).isEqualTo(2);
-        assertThat(intent.legacyVerifications).isZero();
+        assertThat(((VerifyResult.Verified) combined).receipt().reference()).isEqualTo("legacy-ref");
+        assertThat(intent.legacyVerifications).isEqualTo(2);
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
     }
 
     @Test

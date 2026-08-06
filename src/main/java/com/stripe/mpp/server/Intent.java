@@ -3,7 +3,6 @@ package com.stripe.mpp.server;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.PaymentException;
-import com.stripe.mpp.error.VerificationFailedException;
 
 import java.util.Map;
 
@@ -26,7 +25,7 @@ public interface Intent {
      */
     default ValidationResult validate(Credential credential, Map<String, Object> request)
         throws PaymentException {
-        throw new VerificationFailedException(
+        throw new UnsupportedOperationException(
             name() + " does not support non-mutating credential validation"
         );
     }
@@ -40,7 +39,7 @@ public interface Intent {
      */
     default Receipt broadcast(Credential credential, Map<String, Object> request)
         throws PaymentException {
-        throw new VerificationFailedException(
+        throw new UnsupportedOperationException(
             name() + " does not support credential broadcast"
         );
     }

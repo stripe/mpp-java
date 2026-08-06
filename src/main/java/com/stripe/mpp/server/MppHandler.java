@@ -1,5 +1,6 @@
 package com.stripe.mpp.server;
 
+import com.stripe.mpp.Challenge;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.MalformedCredentialException;
@@ -62,7 +63,7 @@ public class MppHandler {
      * before the intent's non-mutating validation hook runs.
      */
     public ValidationResult validateCredential(String authorization, Intent intent) {
-        return validateCredential(parseCredential(authorization), intent);
+        return validateCredential(Verify.parseCredential(authorization), intent);
     }
 
     /** Validate a parsed credential without broadcasting or consuming it. */
@@ -75,30 +76,13 @@ public class MppHandler {
      * Re-validate and perform the terminal payment operation for a credential.
      */
     public Receipt broadcastCredential(String authorization, Intent intent) {
-        return broadcastCredential(parseCredential(authorization), intent);
+        return broadcastCredential(Verify.parseCredential(authorization), intent);
     }
 
     /** Re-validate and perform the terminal payment operation for a parsed credential. */
     public Receipt broadcastCredential(Credential credential, Intent intent) {
         Map<String, Object> request = prepareCredential(credential, intent);
-        return IntentLifecycle.broadcast(intent, credential, request);
-    }
-
-    /**
-     * Legacy alias for {@link #broadcastCredential(String, Intent)}.
-     *
-     * @deprecated Use {@link #broadcastCredential(String, Intent)}; verification may mutate
-     * payment state.
-     */
-    @Deprecated
-    public Receipt verifyCredential(String authorization, Intent intent) {
-        return broadcastCredential(authorization, intent);
-    }
-
-    /** Legacy parsed-credential alias for {@link #broadcastCredential(Credential, Intent)}. */
-    @Deprecated
-    public Receipt verifyCredential(Credential credential, Intent intent) {
-        return broadcastCredential(credential, intent);
+        return intent.verify(credential, request);
     }
 
     /**
@@ -123,9 +107,7 @@ public class MppHandler {
         Map<String, Object> meta,
         String expires
     ) {
-        if (!supports(intent)) {
-            throw new IllegalArgumentException("Method does not support " + intent.getClass().getSimpleName() + " intents");
-        }
+        requireSupported(intent);
 
         String resolvedCurrency  = currency  != null ? currency  : (String) defaults.get("currency");
         String resolvedRecipient = recipient != null ? recipient : (String) defaults.get("recipient");
@@ -165,6 +147,19 @@ public class MppHandler {
     public VerifyResult charge(String authorization, ChargeRequest req) {
         return charge(authorization, req.intent(), req.amount(), req.currency(),
                       req.recipient(), req.description(), req.meta(), req.expires());
+    }
+
+    /**
+     * Mint a fresh payment challenge for the given charge, e.g. for the WWW-Authenticate
+     * header of an error response.
+     */
+    public Challenge challenge(ChargeRequest req) {
+        requireSupported(req.intent());
+        Map<String, Object> request = buildRequest(chargeDescriptor(req));
+        return Verify.createChallenge(
+            method.name(), req.intent(), request, realm, secretKey,
+            req.description(), req.meta(), req.expires()
+        );
     }
 
     /**
@@ -215,37 +210,18 @@ public class MppHandler {
         return method.transformRequest(request);
     }
 
-    private Credential parseCredential(String authorization) {
-        if (authorization == null) {
-            throw new MalformedCredentialException("missing Authorization header");
-        }
-        String payment = Verify.extractPaymentScheme(authorization);
-        if (payment == null) {
-            throw new MalformedCredentialException("missing Payment scheme");
-        }
-        try {
-            return Credential.fromAuthorization(payment);
-        } catch (ParseException e) {
-            throw new MalformedCredentialException(e.getMessage());
-        }
-    }
-
     private Map<String, Object> prepareCredential(Credential credential, Intent intent) {
-        if (!supports(intent)) {
-            throw new IllegalArgumentException(
-                "Method does not support " + intent.getClass().getSimpleName() + " intents"
-            );
-        }
+        requireSupported(intent);
         try {
-            return Verify.assertStandaloneCredential(
-                credential, intent, realm, secretKey, method.name()
-            );
+            return Verify.assertCredential(credential, intent, realm, secretKey, method.name());
         } catch (ParseException e) {
             throw new MalformedCredentialException(e.getMessage());
         }
     }
 
-    private boolean supports(Intent intent) {
-        return method.intents().stream().anyMatch(type -> type.isInstance(intent));
+    private void requireSupported(Intent intent) {
+        if (method.intents().stream().noneMatch(type -> type.isInstance(intent))) {
+            throw new IllegalArgumentException("Method does not support " + intent.getClass().getSimpleName() + " intents");
+        }
     }
 }

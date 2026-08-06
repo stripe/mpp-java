@@ -1,8 +1,10 @@
 package com.stripe.mpp.examples;
 
+import com.stripe.mpp.Challenge;
 import com.stripe.mpp.Json;
 import com.stripe.mpp.Mpp;
 import com.stripe.mpp.error.PaymentException;
+import com.stripe.mpp.methods.tempo.TempoDefaults;
 import com.stripe.mpp.methods.tempo.TempoMethod;
 import com.stripe.mpp.server.ChargeRequest;
 import com.stripe.mpp.server.MppHandler;
@@ -17,8 +19,6 @@ import java.util.Map;
 
 /** Minimal HTTP server that accepts a Moderato pathUSD charge through Tempo API's relay. */
 public final class TempoRelayServer {
-    private static final String PATH_USD = "0x20c0000000000000000000000000000000000000";
-
     private TempoRelayServer() {}
 
     public static void main(String[] args) throws IOException {
@@ -47,7 +47,7 @@ public final class TempoRelayServer {
             }
 
             ChargeRequest charge = ChargeRequest.of(
-                tempo.chargeIntent(), "0.01", PATH_USD, recipient
+                tempo.chargeIntent(), "0.01", TempoDefaults.TESTNET_PATH_USD, recipient
             ).description("Relay-backed Java example")
                 .meta(Map.of("route", "/api/photo"));
             try {
@@ -69,12 +69,10 @@ public final class TempoRelayServer {
                 );
                 send(exchange, 200, Map.of("ok", true, "message", "relay payment accepted"));
             } catch (PaymentException error) {
-                VerifyResult.Challenged retry = (VerifyResult.Challenged) payments.charge(null, charge);
-                exchange.getResponseHeaders().add(
-                    "WWW-Authenticate", retry.challenge().toWwwAuthenticate()
-                );
+                Challenge retry = payments.challenge(charge);
+                exchange.getResponseHeaders().add("WWW-Authenticate", retry.toWwwAuthenticate());
                 exchange.getResponseHeaders().set("Content-Type", "application/problem+json");
-                send(exchange, error.getHttpStatus(), error.toProblemDetails());
+                send(exchange, error.getHttpStatus(), error.toProblemDetails(retry.id()));
             }
         });
 

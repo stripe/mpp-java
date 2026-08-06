@@ -36,7 +36,7 @@ public final class Challenge {
     ) {
         this(
             id, method, intent, request, realm, requestB64, digest, expires, description,
-            opaque, opaque != null ? ChallengeId.b64urlEncode(Json.compact(opaque)) : null
+            opaque, ChallengeId.encodeOpaque(opaque)
         );
     }
 
@@ -94,8 +94,9 @@ public final class Challenge {
         Map<String, Object> meta
     ) {
         String requestB64 = ChallengeId.b64urlEncode(Json.compact(request));
-        String id = ChallengeId.generate(secretKey, realm, method, intent, request, expires, null, meta);
-        return new Challenge(id, method, intent, request, realm, requestB64, null, expires, description, meta);
+        String opaqueRaw = ChallengeId.encodeOpaque(meta);
+        String id = ChallengeId.generateWithOpaque(secretKey, realm, method, intent, request, expires, null, opaqueRaw);
+        return new Challenge(id, method, intent, request, realm, requestB64, null, expires, description, meta, opaqueRaw);
     }
 
     public static Challenge create(

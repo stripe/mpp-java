@@ -1,6 +1,5 @@
 package com.stripe.mpp.methods.tempo;
 
-import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.ChallengeId;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Json;
@@ -9,8 +8,7 @@ import com.stripe.mpp.error.PaymentException;
 import com.stripe.mpp.error.PaymentExpiredException;
 import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.server.ValidationResult;
-import org.web3j.crypto.Hash;
-import org.web3j.utils.Numeric;
+import org.bouncycastle.jcajce.provider.digest.Keccak;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -30,19 +28,9 @@ public final class TempoRelay {
     public static final URI DEFAULT_API_BASE_URL = URI.create("https://api.tempo.xyz/");
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
-    private static final Set<String> ERROR_CODES = Set.of(
-        "already_used",
-        "broadcast_failed",
-        "expired",
-        "invalid_payment",
-        "insufficient_funds",
-        "policy_denied",
-        "screen_rejected",
-        "simulation_failed",
-        "temporarily_unavailable",
-        "unsupported",
-        "unknown"
-    );
+    // Relay error codes safe to forward to payers as failure details; "expired" maps to a
+    // typed exception before this set is consulted, and all remaining codes map to a
+    // generic failure.
     private static final Set<String> SAFE_ERROR_CODES = Set.of(
         "already_used",
         "broadcast_failed",
@@ -54,13 +42,18 @@ public final class TempoRelay {
     );
 
     private final String apiKey;
-    private final URI apiBaseUrl;
+    private final URI validateUrl;
+    private final URI broadcastUrl;
     private final HttpClient http;
 
     private TempoRelay(Builder builder) {
         this.apiKey = builder.apiKey;
-        this.apiBaseUrl = normalizeBaseUrl(builder.apiBaseUrl);
-        this.http = builder.http;
+        URI apiBaseUrl = normalizeBaseUrl(builder.apiBaseUrl);
+        this.validateUrl = apiBaseUrl.resolve("v1/mpp/validate");
+        this.broadcastUrl = apiBaseUrl.resolve("v1/mpp/broadcast");
+        this.http = builder.http != null
+            ? builder.http
+            : HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
     }
 
     /** Start configuring Tempo API's relay with an API key that has the {@code mpp:write} scope. */
@@ -69,23 +62,31 @@ public final class TempoRelay {
     }
 
     ValidationResult validate(Credential credential) {
-        Map<String, Object> input = relayInput(credential);
-        Map<String, Object> response = post("v1/mpp/validate", input, null);
-        if (!Boolean.TRUE.equals(response.get("success"))) throw failure(response);
-        return new ValidationResult(
-            credential,
-            ChallengeId.b64urlDecodeToMap(credential.challenge().request()),
-            Map.of()
-        );
+        Map<String, Object> request = challengeRequest(credential);
+        post(validateUrl, relayBody(credential, request), null);
+        return new ValidationResult(credential, request, Map.of());
     }
 
     Receipt broadcast(Credential credential) {
-        Map<String, Object> input = relayInput(credential);
-        Map<String, Object> response = post(
-            "v1/mpp/broadcast", input, idempotencyKey(credential, input)
-        );
-        if (!Boolean.TRUE.equals(response.get("success"))) throw failure(response);
+        String body = relayBody(credential, challengeRequest(credential));
+        return toReceipt(post(broadcastUrl, body, idempotencyKey(credential, body)));
+    }
 
+    /** Validate then broadcast, building the relay request body once. */
+    Receipt verify(Credential credential) {
+        String body = relayBody(credential, challengeRequest(credential));
+        post(validateUrl, body, null);
+        return toReceipt(post(broadcastUrl, body, idempotencyKey(credential, body)));
+    }
+
+    private static String relayBody(Credential credential, Map<String, Object> request) {
+        Map<String, Object> input = credential.toEnvelope(request);
+        // The relay rejects an empty source; omit it like the reference SDKs do.
+        if ("".equals(credential.source())) input.remove("source");
+        return Json.compact(input);
+    }
+
+    private static Receipt toReceipt(Map<String, Object> response) {
         Object value = response.get("receipt");
         if (!(value instanceof Map<?, ?>)) throw failure();
         Map<?, ?> receipt = (Map<?, ?>) value;
@@ -113,18 +114,15 @@ public final class TempoRelay {
         }
     }
 
-    private Map<String, Object> post(
-        String path,
-        Map<String, Object> input,
-        String idempotencyKey
-    ) {
+    /** POST to the relay and return the parsed response, which is always a success envelope. */
+    private Map<String, Object> post(URI url, String body, String idempotencyKey) {
         HttpRequest.Builder request = HttpRequest.newBuilder()
-            .uri(apiBaseUrl.resolve(path))
+            .uri(url)
             .timeout(TIMEOUT)
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
             .header("tempo-api-key", apiKey)
-            .POST(HttpRequest.BodyPublishers.ofString(Json.compact(input)));
+            .POST(HttpRequest.BodyPublishers.ofString(body));
         if (idempotencyKey != null) request.header("idempotency-key", idempotencyKey);
 
         HttpResponse<String> response;
@@ -138,71 +136,81 @@ public final class TempoRelay {
         }
 
         if (response.statusCode() < 200 || response.statusCode() >= 300) throw failure();
+        Map<String, Object> parsed;
         try {
-            return Json.parseMap(response.body());
+            parsed = Json.parseMap(response.body());
         } catch (RuntimeException e) {
             throw failure();
         }
+        if (!Boolean.TRUE.equals(parsed.get("success"))) throw failure(parsed);
+        return parsed;
     }
 
-    private static Map<String, Object> relayInput(Credential credential) {
-        ChallengeEcho echo = credential.challenge();
-        Map<String, Object> challenge = new LinkedHashMap<>();
-        challenge.put("id", echo.id());
-        challenge.put("realm", echo.realm());
-        challenge.put("method", echo.method());
-        challenge.put("intent", echo.intent());
-        challenge.put("request", ChallengeId.b64urlDecodeToMap(echo.request()));
-        if (echo.expires() != null) challenge.put("expires", echo.expires());
-        if (echo.digest() != null) challenge.put("digest", echo.digest());
-        if (echo.opaqueRaw() != null) challenge.put("opaque", echo.opaqueRaw());
-
-        Map<String, Object> input = new LinkedHashMap<>();
-        input.put("challenge", challenge);
-        input.put("payload", credential.payload());
-        if (credential.source() != null) input.put("source", credential.source());
-        return input;
+    /**
+     * The request the relay validates against is always decoded from the credential's own
+     * HMAC-bound challenge, never taken from the caller.
+     */
+    private static Map<String, Object> challengeRequest(Credential credential) {
+        try {
+            return ChallengeId.b64urlDecodeToMap(credential.challenge().request());
+        } catch (RuntimeException e) {
+            throw new VerificationFailedException("invalid challenge request");
+        }
     }
 
     @SuppressWarnings("unchecked")
-    private static String idempotencyKey(
-        Credential credential,
-        Map<String, Object> input
-    ) {
+    private static String idempotencyKey(Credential credential, String body) {
         Object payloadValue = credential.payload();
         if (payloadValue instanceof Map<?, ?>) {
             Map<String, Object> payload = (Map<String, Object>) payloadValue;
             Object signature = payload.get("signature");
-            if ("transaction".equals(payload.get("type")) && signature instanceof String
-                && isHex((String) signature)) {
-                byte[] hash = Hash.sha3(Numeric.hexStringToByteArray((String) signature));
-                return "mppx_" + Numeric.toHexString(hash);
+            if ("transaction".equals(payload.get("type")) && signature instanceof String) {
+                byte[] transaction = hexBytes((String) signature);
+                if (transaction != null) {
+                    return "mppx_" + hex(new Keccak.Digest256().digest(transaction));
+                }
             }
         }
 
         try {
             byte[] hash = MessageDigest.getInstance("SHA-256")
-                .digest(Json.compact(input).getBytes(StandardCharsets.UTF_8));
-            return "mppx_" + Numeric.toHexString(hash);
+                .digest(body.getBytes(StandardCharsets.UTF_8));
+            return "mppx_" + hex(hash);
         } catch (Exception e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
     }
 
-    private static boolean isHex(String value) {
+    private static byte[] hexBytes(String value) {
         if (value == null || !value.startsWith("0x") || value.length() <= 2
-            || (value.length() - 2) % 2 != 0) return false;
-        for (int i = 2; i < value.length(); i++) {
-            if (Character.digit(value.charAt(i), 16) < 0) return false;
+            || (value.length() - 2) % 2 != 0) return null;
+        byte[] bytes = new byte[(value.length() - 2) / 2];
+        for (int i = 0; i < bytes.length; i++) {
+            int high = Character.digit(value.charAt(2 + i * 2), 16);
+            int low = Character.digit(value.charAt(3 + i * 2), 16);
+            if (high < 0 || low < 0) return null;
+            bytes[i] = (byte) ((high << 4) | low);
         }
-        return true;
+        return bytes;
+    }
+
+    private static String hex(byte[] bytes) {
+        char[] value = new char[2 + bytes.length * 2];
+        value[0] = '0';
+        value[1] = 'x';
+        char[] digits = "0123456789abcdef".toCharArray();
+        for (int i = 0; i < bytes.length; i++) {
+            value[2 + i * 2] = digits[(bytes[i] >>> 4) & 0xf];
+            value[3 + i * 2] = digits[bytes[i] & 0xf];
+        }
+        return new String(value);
     }
 
     private static PaymentException failure(Map<String, Object> response) {
         Object errorValue = response.get("error");
         if (!(errorValue instanceof Map<?, ?>)) return failure();
         Object codeValue = ((Map<?, ?>) errorValue).get("code");
-        if (!(codeValue instanceof String) || !ERROR_CODES.contains(codeValue)) return failure();
+        if (!(codeValue instanceof String)) return failure();
         String code = (String) codeValue;
         if ("expired".equals(code)) return new PaymentExpiredException();
         if (!SAFE_ERROR_CODES.contains(code)) return failure();
@@ -234,7 +242,7 @@ public final class TempoRelay {
     public static final class Builder {
         private final String apiKey;
         private URI apiBaseUrl = DEFAULT_API_BASE_URL;
-        private HttpClient http = HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
+        private HttpClient http;
 
         private Builder(String apiKey) {
             if (apiKey == null || apiKey.isBlank()) {

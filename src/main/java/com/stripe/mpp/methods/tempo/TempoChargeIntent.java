@@ -183,8 +183,9 @@ public class TempoChargeIntent implements Intent {
 final class TempoRelayChargeIntent extends TempoChargeIntent {
     private final TempoRelay relay;
 
-    TempoRelayChargeIntent(String rpcUrl, TempoRpc rpc, TempoRelay relay) {
-        super(rpcUrl, rpc);
+    TempoRelayChargeIntent(String rpcUrl, TempoRelay relay) {
+        // Every rpc-reaching entry point is overridden below, so no TempoRpc is needed.
+        super(rpcUrl, null);
         this.relay = relay;
     }
 
@@ -200,7 +201,6 @@ final class TempoRelayChargeIntent extends TempoChargeIntent {
 
     @Override
     public Receipt verify(Credential credential, Map<String, Object> request) {
-        validate(credential, request);
-        return broadcast(credential, request);
+        return relay.verify(credential);
     }
 }

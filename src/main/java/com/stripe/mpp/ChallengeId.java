@@ -25,7 +25,7 @@ public final class ChallengeId {
     ) {
         return generateWithOpaque(
             secretKey, realm, method, intent, request, expires, digest,
-            opaque != null ? b64urlEncode(Json.compact(opaque)) : null
+            encodeOpaque(opaque)
         );
     }
 
@@ -57,6 +57,14 @@ public final class ChallengeId {
             input.getBytes(StandardCharsets.UTF_8)
         );
         return b64urlEncodeBytes(hmac);
+    }
+
+    /**
+     * Encode opaque metadata to the wire form bound by {@link #generateWithOpaque}
+     * (base64url of compact JSON), or null when there is no metadata.
+     */
+    public static String encodeOpaque(Map<String, Object> opaque) {
+        return opaque != null ? b64urlEncode(Json.compact(opaque)) : null;
     }
 
     public static String b64urlEncode(String str) {

@@ -30,18 +30,13 @@ public class TempoMethod implements Method {
         this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null);
     }
 
-    TempoMethod(String rpcUrl, int chainId, int decimals) {
-        this(rpcUrl, chainId, decimals, null);
-    }
-
     TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay) {
         this.rpcUrl = rpcUrl;
         this.chainId = chainId;
         this.decimals = decimals;
-        TempoRpc rpc = new TempoRpc();
         this.chargeIntent = relay == null
-            ? new TempoChargeIntent(rpcUrl, rpc)
-            : new TempoRelayChargeIntent(rpcUrl, rpc, relay);
+            ? new TempoChargeIntent(rpcUrl, new TempoRpc())
+            : new TempoRelayChargeIntent(rpcUrl, relay);
     }
 
     /** Starts a builder defaulting to Tempo mainnet. Call {@link Builder#testnet()} to switch. */

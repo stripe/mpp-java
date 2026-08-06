@@ -130,7 +130,7 @@ final class Parsing {
             opaque = decodeOpaque(opaqueRaw);
         } else if (opaqueValue instanceof Map) {
             opaque = (Map<String, Object>) opaqueValue;
-            opaqueRaw = b64Encode(opaque);
+            opaqueRaw = ChallengeId.encodeOpaque(opaque);
         } else if (opaqueValue != null) {
             throw new ParseException("Credential challenge has invalid field: opaque");
         }
@@ -160,24 +160,7 @@ final class Parsing {
     }
 
     static String formatAuthorization(Credential credential) {
-        ChallengeEcho echo = credential.challenge();
-
-        Map<String, Object> challengeMap = new java.util.LinkedHashMap<>();
-        challengeMap.put("id", echo.id());
-        challengeMap.put("realm", echo.realm());
-        challengeMap.put("method", echo.method());
-        challengeMap.put("intent", echo.intent());
-        challengeMap.put("request", echo.request());
-        if (echo.expires() != null) challengeMap.put("expires", echo.expires());
-        if (echo.digest() != null)  challengeMap.put("digest", echo.digest());
-        if (echo.opaqueRaw() != null) challengeMap.put("opaque", echo.opaqueRaw());
-
-        Map<String, Object> envelope = new java.util.LinkedHashMap<>();
-        envelope.put("challenge", challengeMap);
-        envelope.put("payload", credential.payload());
-        if (credential.source() != null) envelope.put("source", credential.source());
-
-        return "Payment " + b64Encode(envelope);
+        return "Payment " + b64Encode(credential.toEnvelope(credential.challenge().request()));
     }
 
     // --- Payment-Receipt ---

@@ -7,6 +7,7 @@ import com.stripe.mpp.Credential;
 import com.stripe.mpp.Json;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.InvalidChallengeException;
+import com.stripe.mpp.error.MalformedCredentialException;
 import com.stripe.mpp.error.ParseException;
 import com.stripe.mpp.error.PaymentExpiredException;
 
@@ -42,47 +43,60 @@ public final class Verify {
         Map<String, Object> meta,
         String expires
     ) {
-        if (authorization == null) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
-        }
-
-        String paymentScheme = extractPaymentScheme(authorization);
-        if (paymentScheme == null) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
-        }
-
         Credential credential;
         try {
-            credential = Credential.fromAuthorization(paymentScheme);
-        } catch (ParseException e) {
+            credential = parseCredential(authorization);
+        } catch (MalformedCredentialException e) {
             return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
         }
 
         try {
-            assertCredential(
-                credential, intent, request, realm, secretKey, methodName, opaqueFromMeta(meta)
-            );
+            Map<String, Object> echoRequest = assertCredential(credential, intent, realm, secretKey, methodName);
+            // Canonical JSON avoids Integer-vs-Long mismatches after decoding.
+            if (!Json.compact(echoRequest).equals(Json.compact(request))) {
+                throw new InvalidChallengeException(credential.challenge().id(), "request does not match");
+            }
+            if (!Objects.equals(credential.challenge().opaqueRaw(), ChallengeId.encodeOpaque(meta))) {
+                throw new InvalidChallengeException(credential.challenge().id(), "opaque data does not match");
+            }
         } catch (ParseException | InvalidChallengeException | PaymentExpiredException e) {
             return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
         }
 
-        Receipt receipt = IntentLifecycle.broadcast(intent, credential, request);
+        Receipt receipt = intent.verify(credential, request);
         return new VerifyResult.Verified(credential, receipt);
     }
 
+    /** Parse the Authorization header into a Credential. */
+    static Credential parseCredential(String authorization) {
+        if (authorization == null) {
+            throw new MalformedCredentialException("missing Authorization header");
+        }
+        String payment = extractPaymentScheme(authorization);
+        if (payment == null) {
+            throw new MalformedCredentialException("missing Payment scheme");
+        }
+        try {
+            return Credential.fromAuthorization(payment);
+        } catch (ParseException e) {
+            throw new MalformedCredentialException(e.getMessage());
+        }
+    }
+
     /**
-     * Verify challenge provenance, route binding, and expiry for a parsed credential.
+     * Verify challenge provenance (HMAC binding, method/route match) and expiry for a parsed
+     * credential. Whether the echoed request and opaque match the server's expectations stays
+     * with the caller: the charge path checks them against the current route, while standalone
+     * lifecycle calls trust the HMAC-bound echo as-is.
      *
      * @return the request decoded from the echoed challenge
      */
     static Map<String, Object> assertCredential(
         Credential credential,
         Intent intent,
-        Map<String, Object> request,
         String realm,
         String secretKey,
-        String methodName,
-        String expectedOpaque
+        String methodName
     ) {
         ChallengeEcho echo = credential.challenge();
         if (echo == null || echo.id() == null || echo.realm() == null
@@ -108,15 +122,6 @@ public final class Verify {
             throw new InvalidChallengeException(echo.id(), "method or route does not match");
         }
 
-        // Canonical JSON avoids Integer-vs-Long mismatches after decoding.
-        if (!Json.compact(echoRequest).equals(Json.compact(request))) {
-            throw new InvalidChallengeException(echo.id(), "request does not match");
-        }
-
-        if (!Objects.equals(echoOpaque, expectedOpaque)) {
-            throw new InvalidChallengeException(echo.id(), "opaque data does not match");
-        }
-
         if (echo.expires() == null) {
             throw new InvalidChallengeException(echo.id(), "missing expiry");
         }
@@ -129,28 +134,6 @@ public final class Verify {
         }
 
         return echoRequest;
-    }
-
-    /** Verify a credential against its own HMAC-bound request for standalone lifecycle calls. */
-    static Map<String, Object> assertStandaloneCredential(
-        Credential credential,
-        Intent intent,
-        String realm,
-        String secretKey,
-        String methodName
-    ) {
-        ChallengeEcho echo = credential.challenge();
-        Map<String, Object> request = echo == null || echo.request() == null || echo.request().isEmpty()
-            ? Map.of()
-            : ChallengeId.b64urlDecodeToMap(echo.request());
-        return assertCredential(
-            credential, intent, request, realm, secretKey, methodName,
-            echo == null ? null : echo.opaqueRaw()
-        );
-    }
-
-    private static String opaqueFromMeta(Map<String, Object> meta) {
-        return meta == null ? null : ChallengeId.b64urlEncode(Json.compact(meta));
     }
 
     static Challenge createChallenge(

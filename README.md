@@ -81,7 +81,6 @@ TempoMethod tempo = TempoMethod.of()
 `MppHandler.charge(...)` validates immediately before broadcast. Applications that expose those
 phases separately can use `validateCredential(...)` for a non-mutating pre-check and
 `broadcastCredential(...)` when accepting the payment. The latter always re-validates first.
-`verifyCredential(...)` remains as a deprecated alias for the mutating broadcast path.
 
 See the runnable [Tempo relay example](examples/tempo-relay).
 

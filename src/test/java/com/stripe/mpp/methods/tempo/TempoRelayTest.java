@@ -73,6 +73,38 @@ class TempoRelayTest {
     }
 
     @Test
+    void omitsAnEmptyCredentialSource() throws Exception {
+        try (RelayServer server = new RelayServer()) {
+            server.respond(call -> Reply.json(200, Map.of("success", true)));
+            Credential credential = new Credential(ECHO, CREDENTIAL.payload(), "");
+
+            intent(server).validate(credential, REQUEST);
+
+            assertThat(server.calls.get(0).body).doesNotContainKey("source");
+        }
+    }
+
+    @Test
+    void malformedChallengeRequestFailsWithoutCallingTheRelay() throws Exception {
+        try (RelayServer server = new RelayServer()) {
+            TempoChargeIntent intent = intent(server);
+            Credential credential = new Credential(
+                new ChallengeEcho(
+                    "id", "api.example.com", "tempo", "charge", "not-base64url!",
+                    "2099-01-01T00:00:00Z", null, null
+                ),
+                CREDENTIAL.payload(),
+                CREDENTIAL.source()
+            );
+
+            assertThatThrownBy(() -> intent.validate(credential, REQUEST))
+                .isInstanceOf(VerificationFailedException.class)
+                .hasMessageContaining("invalid challenge request");
+            assertThat(server.calls).isEmpty();
+        }
+    }
+
+    @Test
     void forwardsTheExactSpecOpaqueValue() throws Exception {
         try (RelayServer server = new RelayServer()) {
             server.respond(call -> Reply.json(200, Map.of("success", true)));
@@ -210,6 +242,16 @@ class TempoRelayTest {
             assertThatThrownBy(() -> intent.validate(CREDENTIAL, REQUEST))
                 .isInstanceOf(PaymentExpiredException.class)
                 .hasMessage("Payment has expired.");
+
+            server.respond(call -> Reply.json(200, Map.of(
+                "error", Map.of("code", "insufficient_funds", "message", "private detail"),
+                "success", false
+            )));
+            assertThatThrownBy(() -> intent.validate(CREDENTIAL, REQUEST))
+                .isInstanceOfSatisfying(VerificationFailedException.class, error -> {
+                    assertThat(error.getMessage()).isEqualTo("Payment verification failed.");
+                    assertThat(error.getDetails()).containsEntry("code", "insufficient_funds");
+                });
 
             server.respond(call -> Reply.json(403, Map.of(
                 "error", Map.of("code", "insufficient_funds", "message", "private detail")

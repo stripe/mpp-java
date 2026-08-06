@@ -24,9 +24,7 @@ public final class TempoRelayServer {
     public static void main(String[] args) throws IOException {
         String apiKey = required("TEMPO_API_KEY");
         String recipient = required("MPP_RECIPIENT");
-        String secretKey = System.getenv().getOrDefault(
-            "MPP_SECRET_KEY", "mpp-java-tempo-relay-development-secret-key"
-        );
+        String secretKey = required("MPP_SECRET_KEY");
         int port = Integer.parseInt(System.getenv().getOrDefault("PORT", "8080"));
 
         TempoMethod tempo = TempoMethod.of().testnet().relay(apiKey).build();

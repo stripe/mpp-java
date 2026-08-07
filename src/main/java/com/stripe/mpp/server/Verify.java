@@ -100,13 +100,12 @@ public final class Verify {
     ) {
         ChallengeEcho echo = credential.challenge();
         if (echo == null || echo.id() == null || echo.realm() == null
-            || echo.method() == null || echo.intent() == null) {
+            || echo.method() == null || echo.intent() == null
+            || echo.request() == null || echo.request().isEmpty()) {
             throw new InvalidChallengeException(null, "missing required challenge fields");
         }
 
-        Map<String, Object> echoRequest = (echo.request() == null || echo.request().isEmpty())
-            ? Map.of()
-            : ChallengeId.b64urlDecodeToMap(echo.request());
+        Map<String, Object> echoRequest = ChallengeId.b64urlDecodeToMap(echo.request());
         String echoOpaque = echo.opaqueRaw();
 
         String expectedId = ChallengeId.generateWithOpaque(

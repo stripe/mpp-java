@@ -77,7 +77,7 @@ public final class Challenge {
     public String description() { return description; }
     /** Decoded metadata when the opaque value contains a JSON object. */
     public Map<String, Object> opaque() { return opaque; }
-    /** Exact opaque value carried in the challenge header. */
+    /** Exact base64url opaque value carried in the header and bound by the challenge ID. */
     public String opaqueRaw() { return opaqueRaw; }
 
     /**

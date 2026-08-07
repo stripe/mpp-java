@@ -313,6 +313,35 @@ class IntegrationTest {
     }
 
     @Test
+    void standaloneLifecycleRejectsMissingEchoRequest() {
+        String secret = "super-secret";
+        String realm = "api.example.com";
+        String expires = "2099-01-01T00:00:00Z";
+        MppHandler server = Mpp.create(new SplitMethod(), realm, secret);
+        SplitChargeIntent intent = new SplitChargeIntent();
+        String id = ChallengeId.generateWithOpaque(
+            secret, realm, "test", "charge", Map.of(), expires, null, null
+        );
+
+        for (String request : new String[] { null, "" }) {
+            Credential credential = new Credential(
+                new ChallengeEcho(
+                    id, realm, "test", "charge", request, expires, null, null
+                ),
+                Map.of("sig", "x"),
+                null
+            );
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> server.validateCredential(credential, intent)
+            ).isInstanceOf(InvalidChallengeException.class)
+                .hasMessageContaining("missing required challenge fields");
+        }
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
+    }
+
+    @Test
     void tamperedChallengeIdForcesNewChallenge() {
         MppHandler server = Mpp.create(new TestMethod(), "api.example.com", "super-secret");
         Intent intent = new ChargeIntent();

@@ -9,6 +9,8 @@ import com.stripe.mpp.error.PaymentExpiredException;
 import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.server.ValidationResult;
 import org.bouncycastle.jcajce.provider.digest.Keccak;
+import org.bouncycastle.util.encoders.DecoderException;
+import org.bouncycastle.util.encoders.Hex;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -28,6 +30,7 @@ public final class TempoRelay {
     public static final URI DEFAULT_API_BASE_URL = URI.create("https://api.tempo.xyz/");
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
+    private static final String IDEMPOTENCY_KEY_PREFIX = "mpp_java_";
     // Relay error codes safe to forward to payers as failure details; "expired" maps to a
     // typed exception before this set is consulted, and all remaining codes map to a
     // generic failure.
@@ -165,9 +168,15 @@ public final class TempoRelay {
             Map<String, Object> payload = (Map<String, Object>) payloadValue;
             Object signature = payload.get("signature");
             if ("transaction".equals(payload.get("type")) && signature instanceof String) {
-                byte[] transaction = hexBytes((String) signature);
-                if (transaction != null) {
-                    return "mppx_" + hex(new Keccak.Digest256().digest(transaction));
+                String value = (String) signature;
+                try {
+                    if (value.startsWith("0x") && value.length() > 2) {
+                        byte[] transaction = Hex.decodeStrict(value, 2, value.length() - 2);
+                        return IDEMPOTENCY_KEY_PREFIX + "0x"
+                            + Hex.toHexString(new Keccak.Digest256().digest(transaction));
+                    }
+                } catch (DecoderException ignored) {
+                    // Fall through to the canonical credential hash.
                 }
             }
         }
@@ -175,35 +184,10 @@ public final class TempoRelay {
         try {
             byte[] hash = MessageDigest.getInstance("SHA-256")
                 .digest(body.getBytes(StandardCharsets.UTF_8));
-            return "mppx_" + hex(hash);
+            return IDEMPOTENCY_KEY_PREFIX + "0x" + Hex.toHexString(hash);
         } catch (Exception e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
-    }
-
-    private static byte[] hexBytes(String value) {
-        if (value == null || !value.startsWith("0x") || value.length() <= 2
-            || (value.length() - 2) % 2 != 0) return null;
-        byte[] bytes = new byte[(value.length() - 2) / 2];
-        for (int i = 0; i < bytes.length; i++) {
-            int high = Character.digit(value.charAt(2 + i * 2), 16);
-            int low = Character.digit(value.charAt(3 + i * 2), 16);
-            if (high < 0 || low < 0) return null;
-            bytes[i] = (byte) ((high << 4) | low);
-        }
-        return bytes;
-    }
-
-    private static String hex(byte[] bytes) {
-        char[] value = new char[2 + bytes.length * 2];
-        value[0] = '0';
-        value[1] = 'x';
-        char[] digits = "0123456789abcdef".toCharArray();
-        for (int i = 0; i < bytes.length; i++) {
-            value[2 + i * 2] = digits[(bytes[i] >>> 4) & 0xf];
-            value[3 + i * 2] = digits[bytes[i] & 0xf];
-        }
-        return new String(value);
     }
 
     private static PaymentException failure(Map<String, Object> response) {

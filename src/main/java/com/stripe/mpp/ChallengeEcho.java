@@ -4,7 +4,9 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * The challenge fields echoed back inside a Credential's Authorization header.
+ * The original challenge fields copied into a Credential's Authorization header.
+ * This is not a new challenge; encoded request and opaque values are preserved for
+ * stateless challenge verification.
  */
 public final class ChallengeEcho {
     private final String id;
@@ -81,7 +83,7 @@ public final class ChallengeEcho {
     public String digest() { return digest; }
     /** Decoded metadata when the opaque value contains a JSON object. */
     public Map<String, Object> opaque() { return opaque; }
-    /** Exact opaque value echoed on the wire. */
+    /** Exact base64url opaque value echoed unchanged from the original challenge. */
     public String opaqueRaw() { return opaqueRaw; }
 
     @Override

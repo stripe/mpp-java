@@ -10,6 +10,7 @@ public class PaymentException extends RuntimeException {
     private final int httpStatus;
     private final String type;
     private final String title;
+    /** Safe structured context emitted as the RFC 9457 {@code details} extension member. */
     private final Map<String, Object> details;
 
     public PaymentException(String message, int httpStatus, String type, String title) {
@@ -50,6 +51,7 @@ public class PaymentException extends RuntimeException {
         problem.put("type", type);
         problem.put("title", title);
         problem.put("status", httpStatus);
+        // "detail" is the RFC 9457 message; "details" is structured extension data.
         problem.put("detail", getMessage());
         if (!details.isEmpty()) {
             problem.put("details", details);

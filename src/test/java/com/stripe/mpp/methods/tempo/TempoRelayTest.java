@@ -192,7 +192,7 @@ class TempoRelayTest {
             assertThat(server.calls).hasSize(2);
             String first = server.calls.get(0).idempotencyKey;
             assertThat(first).isEqualTo(
-                "mppx_0x56570de287d73cd1cb6092bb8fdee6173974955fdef345ae579ee9f475ea7432"
+                "mpp_java_0x56570de287d73cd1cb6092bb8fdee6173974955fdef345ae579ee9f475ea7432"
             );
             assertThat(server.calls.get(1).idempotencyKey).isEqualTo(first);
         }
@@ -212,7 +212,7 @@ class TempoRelayTest {
             intent.broadcast(proof, REQUEST);
 
             assertThat(server.calls.get(0).idempotencyKey).isEqualTo(
-                "mppx_0x2f1e58d9f7fa16847ec115a9d6262177de8ab45dd184b21891aa42d88d8e4770"
+                "mpp_java_0x2f1e58d9f7fa16847ec115a9d6262177de8ab45dd184b21891aa42d88d8e4770"
             );
         }
     }

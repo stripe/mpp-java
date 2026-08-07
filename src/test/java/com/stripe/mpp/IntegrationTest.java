@@ -59,7 +59,7 @@ class IntegrationTest {
         }
     }
 
-    static class SplitMethod implements Method {
+    static class VerifiableMethod implements Method {
         @Override
         public String name() { return "test"; }
 
@@ -147,7 +147,7 @@ class IntegrationTest {
 
     @Test
     void standaloneLifecycleSeparatesValidationAndBroadcast() {
-        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", "super-secret");
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", "super-secret");
         SplitChargeIntent intent = new SplitChargeIntent();
         VerifyResult challenged = server.charge(
             null, intent, "10.000000", "USDC", "0xRecipient"
@@ -215,7 +215,7 @@ class IntegrationTest {
     void specOpaqueCredentialPassesRouteBindingAndSplitLifecycle() {
         String secret = "super-secret";
         SplitChargeIntent intent = new SplitChargeIntent();
-        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", secret);
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", secret);
         Map<String, Object> meta = Map.of("route", "/api/photo");
         String expires = "2099-01-01T00:00:00Z";
         Challenge challenge = ((VerifyResult.Challenged) server.charge(
@@ -248,7 +248,7 @@ class IntegrationTest {
     @Test
     void differentOpaqueMetadataForcesAChallengeBeforeLifecycleHooks() {
         SplitChargeIntent intent = new SplitChargeIntent();
-        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", "super-secret");
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", "super-secret");
         String expires = "2099-01-01T00:00:00Z";
         Challenge challenge = ((VerifyResult.Challenged) server.charge(
             null, intent, "10.000000", "USDC", "0xRecipient",
@@ -268,7 +268,7 @@ class IntegrationTest {
 
     @Test
     void standaloneStringApiNormalizesMalformedEchoRequest() {
-        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", "super-secret");
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", "super-secret");
         SplitChargeIntent intent = new SplitChargeIntent();
         Map<String, Object> challenge = new LinkedHashMap<>();
         challenge.put("id", "untrusted");
@@ -290,7 +290,7 @@ class IntegrationTest {
 
     @Test
     void standaloneLifecycleRejectsTamperedChallenge() {
-        MppHandler server = Mpp.create(new SplitMethod(), "api.example.com", "super-secret");
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", "super-secret");
         SplitChargeIntent intent = new SplitChargeIntent();
         Challenge challenge = ((VerifyResult.Challenged) server.charge(
             null, intent, "10.000000", "USDC", "0xRecipient"
@@ -317,7 +317,7 @@ class IntegrationTest {
         String secret = "super-secret";
         String realm = "api.example.com";
         String expires = "2099-01-01T00:00:00Z";
-        MppHandler server = Mpp.create(new SplitMethod(), realm, secret);
+        MppHandler server = Mpp.create(new VerifiableMethod(), realm, secret);
         SplitChargeIntent intent = new SplitChargeIntent();
         String id = ChallengeId.generateWithOpaque(
             secret, realm, "test", "charge", Map.of(), expires, null, null

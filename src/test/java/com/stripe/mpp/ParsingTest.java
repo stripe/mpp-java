@@ -3,6 +3,7 @@ package com.stripe.mpp;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -137,6 +138,19 @@ class ParsingTest {
             .hasMessageContaining("Request parameter exceeds");
     }
 
+    @Test
+    void challengePreservesOpaqueThatIsNotJson() {
+        String opaque = ChallengeId.b64urlEncode("xy wrong");
+        String header = "Payment id=\"abc\", realm=\"api\", method=\"tempo\", "
+            + "intent=\"charge\", request=\"e30\", opaque=\"" + opaque + "\"";
+
+        Challenge challenge = Challenge.fromWwwAuthenticate(header).get(0);
+
+        assertThat(challenge.opaqueRaw()).isEqualTo(opaque);
+        assertThat(challenge.opaque()).isNull();
+        assertThat(challenge.toWwwAuthenticate()).isEqualTo(header);
+    }
+
     // --- Credential (Authorization) ---
 
     @Test
@@ -199,6 +213,82 @@ class ParsingTest {
         assertThatThrownBy(() -> Credential.fromAuthorization(bad))
             .isInstanceOf(com.stripe.mpp.error.ParseException.class)
             .hasMessageContaining("method");
+    }
+
+    @Test
+    void credentialPreservesSpecOpaqueStringAndIgnoresInjectedMeta() {
+        String opaque = ChallengeId.b64urlEncode("{\"route\":\"/api/photo\"}");
+        Map<String, Object> challenge = new LinkedHashMap<>();
+        challenge.put("id", "abc");
+        challenge.put("realm", "api");
+        challenge.put("method", "tempo");
+        challenge.put("intent", "charge");
+        challenge.put("request", "e30");
+        challenge.put("opaque", opaque);
+        challenge.put("meta", Map.of("route", "/forged"));
+        String header = "Payment " + ChallengeId.b64urlEncode(Json.compact(Map.of(
+            "challenge", challenge,
+            "payload", Map.of("type", "transaction", "signature", "0x1234")
+        )));
+
+        Credential credential = Credential.fromAuthorization(header);
+
+        assertThat(credential.challenge().opaqueRaw()).isEqualTo(opaque);
+        assertThat(credential.challenge().opaque()).containsEntry("route", "/api/photo");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> roundTrip = (Map<String, Object>) Parsing.b64Decode(
+            credential.toAuthorization().substring("Payment ".length())
+        );
+        @SuppressWarnings("unchecked")
+        Map<String, Object> roundTripChallenge =
+            (Map<String, Object>) roundTrip.get("challenge");
+        assertThat(roundTripChallenge.get("opaque")).isEqualTo(opaque);
+        assertThat(roundTripChallenge).doesNotContainKey("meta");
+    }
+
+    @Test
+    void credentialNormalizesLegacyObjectOpaqueToWireString() {
+        Map<String, Object> legacyOpaque = Map.of("route", "/legacy");
+        String header = "Payment " + ChallengeId.b64urlEncode(Json.compact(Map.of(
+            "challenge", Map.of(
+                "id", "abc",
+                "realm", "api",
+                "method", "tempo",
+                "intent", "charge",
+                "request", "e30",
+                "opaque", legacyOpaque
+            ),
+            "payload", Map.of()
+        )));
+
+        Credential credential = Credential.fromAuthorization(header);
+
+        String expected = ChallengeId.b64urlEncode(Json.compact(legacyOpaque));
+        assertThat(credential.challenge().opaqueRaw()).isEqualTo(expected);
+        assertThat(credential.challenge().opaque()).isEqualTo(legacyOpaque);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> roundTrip = (Map<String, Object>) Parsing.b64Decode(
+            credential.toAuthorization().substring("Payment ".length())
+        );
+        @SuppressWarnings("unchecked")
+        Map<String, Object> roundTripChallenge =
+            (Map<String, Object>) roundTrip.get("challenge");
+        assertThat(roundTripChallenge.get("opaque")).isEqualTo(expected);
+    }
+
+    @Test
+    void credentialRejectsInvalidOpaqueType() {
+        String header = "Payment " + ChallengeId.b64urlEncode(Json.compact(Map.of(
+            "challenge", Map.of(
+                "id", "abc", "realm", "api", "method", "tempo", "intent", "charge",
+                "request", "e30", "opaque", true
+            ),
+            "payload", Map.of()
+        )));
+
+        assertThatThrownBy(() -> Credential.fromAuthorization(header))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("opaque");
     }
 
     // --- Receipt (Payment-Receipt) ---

@@ -6,8 +6,10 @@ import com.stripe.mpp.ChallengeId;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Json;
 import com.stripe.mpp.Receipt;
+import com.stripe.mpp.error.InvalidChallengeException;
+import com.stripe.mpp.error.MalformedCredentialException;
 import com.stripe.mpp.error.ParseException;
-import com.stripe.mpp.error.PaymentException;
+import com.stripe.mpp.error.PaymentExpiredException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -41,88 +43,96 @@ public final class Verify {
         Map<String, Object> meta,
         String expires
     ) {
-        if (authorization == null) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
-        }
-
-        String paymentScheme = extractPaymentScheme(authorization);
-        if (paymentScheme == null) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
-        }
-
         Credential credential;
         try {
-            credential = Credential.fromAuthorization(paymentScheme);
-        } catch (ParseException e) {
+            credential = parseCredential(authorization);
+        } catch (MalformedCredentialException e) {
             return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
         }
 
-        ChallengeEcho echo = credential.challenge();
-
-        // Decode the echoed request and opaque back to maps for HMAC verification
-        Map<String, Object> echoRequest;
-        Map<String, Object> echoOpaque;
         try {
-            echoRequest = (echo.request() == null || echo.request().isEmpty())
-                ? Map.of()
-                : ChallengeId.b64urlDecodeToMap(echo.request());
-            echoOpaque = echo.opaque();
-        } catch (ParseException e) {
+            Map<String, Object> echoRequest = assertCredential(credential, intent, realm, secretKey, methodName);
+            // Canonical JSON avoids Integer-vs-Long mismatches after decoding.
+            if (!Json.compact(echoRequest).equals(Json.compact(request))) {
+                throw new InvalidChallengeException(credential.challenge().id(), "request does not match");
+            }
+            if (!Objects.equals(credential.challenge().opaqueRaw(), ChallengeId.encodeOpaque(meta))) {
+                throw new InvalidChallengeException(credential.challenge().id(), "opaque data does not match");
+            }
+        } catch (ParseException | InvalidChallengeException | PaymentExpiredException e) {
             return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
         }
 
-        // Recompute the challenge ID and compare using constant-time comparison
-        String expectedId = ChallengeId.generate(
+        Receipt receipt = intent.verify(credential, request);
+        return new VerifyResult.Verified(credential, receipt);
+    }
+
+    /** Parse the Authorization header into a Credential. */
+    static Credential parseCredential(String authorization) {
+        if (authorization == null) {
+            throw new MalformedCredentialException("missing Authorization header");
+        }
+        String payment = extractPaymentScheme(authorization);
+        if (payment == null) {
+            throw new MalformedCredentialException("missing Payment scheme");
+        }
+        try {
+            return Credential.fromAuthorization(payment);
+        } catch (ParseException e) {
+            throw new MalformedCredentialException(e.getMessage());
+        }
+    }
+
+    /**
+     * Verify challenge provenance (HMAC binding, method/route match) and expiry for a parsed
+     * credential. Whether the echoed request and opaque match the server's expectations stays
+     * with the caller: the charge path checks them against the current route, while standalone
+     * lifecycle calls trust the HMAC-bound echo as-is.
+     *
+     * @return the request decoded from the echoed challenge
+     */
+    static Map<String, Object> assertCredential(
+        Credential credential,
+        Intent intent,
+        String realm,
+        String secretKey,
+        String methodName
+    ) {
+        ChallengeEcho echo = credential.challenge();
+        if (echo == null || echo.id() == null || echo.realm() == null
+            || echo.method() == null || echo.intent() == null
+            || echo.request() == null || echo.request().isEmpty()) {
+            throw new InvalidChallengeException(null, "missing required challenge fields");
+        }
+
+        Map<String, Object> echoRequest = ChallengeId.b64urlDecodeToMap(echo.request());
+        String echoOpaque = echo.opaqueRaw();
+
+        String expectedId = ChallengeId.generateWithOpaque(
             secretKey, echo.realm(), echo.method(), echo.intent(),
             echoRequest, echo.expires(), echo.digest(), echoOpaque
         );
         if (!secureCompare(echo.id(), expectedId)) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+            throw new InvalidChallengeException(echo.id(), "challenge binding does not match");
         }
 
-        // Verify echoed fields match the current server state
-        if (!realm.equals(echo.realm()) || !methodName.equals(echo.method()) || !intent.name().equals(echo.intent())) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+        if (!realm.equals(echo.realm()) || !methodName.equals(echo.method())
+            || !intent.name().equals(echo.intent())) {
+            throw new InvalidChallengeException(echo.id(), "method or route does not match");
         }
 
-        // Verify echoed request matches expected request. Compare via canonical JSON
-        // rather than Java object equality to avoid Integer vs Long mismatches that
-        // arise when Jackson deserializes numeric values from the echoed base64 request.
-        if (!Json.compact(echoRequest).equals(Json.compact(request))) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
-        }
-
-        // Verify echoed meta/opaque matches
-        if (echoOpaque != null || meta != null) {
-            String echoOpaqueJson = Json.compact(echoOpaque != null ? echoOpaque : Map.of());
-            String metaJson = Json.compact(meta != null ? meta : Map.of());
-            if (!echoOpaqueJson.equals(metaJson)) {
-                return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
-            }
-        }
-
-        // Challenges must always have an expiry (fail closed)
         if (echo.expires() == null) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+            throw new InvalidChallengeException(echo.id(), "missing expiry");
         }
-
-        // Reject expired challenges
         try {
-            Instant expiry = Instant.parse(echo.expires());
-            if (expiry.isBefore(Instant.now())) {
-                return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+            if (Instant.parse(echo.expires()).isBefore(Instant.now())) {
+                throw new PaymentExpiredException(echo.expires());
             }
         } catch (DateTimeParseException e) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+            throw new InvalidChallengeException(echo.id(), "invalid expiry");
         }
 
-        // Delegate to the intent for payment-method-specific verification
-        try {
-            Receipt receipt = intent.verify(credential, request);
-            return new VerifyResult.Verified(credential, receipt);
-        } catch (PaymentException e) {
-            throw e;
-        }
+        return echoRequest;
     }
 
     static Challenge createChallenge(
@@ -151,6 +161,7 @@ public final class Verify {
     }
 
     static boolean secureCompare(String a, String b) {
+        if (a == null || b == null) return false;
         return MessageDigest.isEqual(
             a.getBytes(StandardCharsets.UTF_8),
             b.getBytes(StandardCharsets.UTF_8)

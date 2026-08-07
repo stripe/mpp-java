@@ -102,7 +102,7 @@ final class Parsing {
         if (challenge.expires() != null)     parts.add("expires=" + quote(challenge.expires()));
         if (challenge.digest() != null)      parts.add("digest=" + quote(challenge.digest()));
         if (challenge.description() != null) parts.add("description=" + quote(challenge.description()));
-        if (challenge.opaque() != null)      parts.add("opaque=" + quote(b64Encode(challenge.opaque())));
+        if (challenge.opaqueRaw() != null)   parts.add("opaque=" + quote(challenge.opaqueRaw()));
         return "Payment " + String.join(", ", parts);
     }
 
@@ -122,12 +122,20 @@ final class Parsing {
         String method = requireString(challengeMap, "method");
         validatePaymentMethodId(method);
 
+        Object opaqueValue = challengeMap.get("opaque");
         Map<String, Object> opaque = null;
-        if (challengeMap.get("opaque") instanceof Map) {
-            opaque = (Map<String, Object>) challengeMap.get("opaque");
+        String opaqueRaw = null;
+        if (opaqueValue instanceof String) {
+            opaqueRaw = (String) opaqueValue;
+            opaque = decodeOpaque(opaqueRaw);
+        } else if (opaqueValue instanceof Map) {
+            opaque = (Map<String, Object>) opaqueValue;
+            opaqueRaw = ChallengeId.encodeOpaque(opaque);
+        } else if (opaqueValue != null) {
+            throw new ParseException("Credential challenge has invalid field: opaque");
         }
 
-        ChallengeEcho echo = new ChallengeEcho(
+        ChallengeEcho echo = ChallengeEcho.fromWire(
             str(challengeMap, "id"),
             str(challengeMap, "realm"),
             method,
@@ -135,6 +143,7 @@ final class Parsing {
             str(challengeMap, "request"),
             str(challengeMap, "expires"),
             str(challengeMap, "digest"),
+            opaqueRaw,
             opaque
         );
 
@@ -151,24 +160,7 @@ final class Parsing {
     }
 
     static String formatAuthorization(Credential credential) {
-        ChallengeEcho echo = credential.challenge();
-
-        Map<String, Object> challengeMap = new java.util.LinkedHashMap<>();
-        challengeMap.put("id", echo.id());
-        challengeMap.put("realm", echo.realm());
-        challengeMap.put("method", echo.method());
-        challengeMap.put("intent", echo.intent());
-        challengeMap.put("request", echo.request());
-        if (echo.expires() != null) challengeMap.put("expires", echo.expires());
-        if (echo.digest() != null)  challengeMap.put("digest", echo.digest());
-        if (echo.opaque() != null)  challengeMap.put("opaque", echo.opaque());
-
-        Map<String, Object> envelope = new java.util.LinkedHashMap<>();
-        envelope.put("challenge", challengeMap);
-        envelope.put("payload", credential.payload());
-        if (credential.source() != null) envelope.put("source", credential.source());
-
-        return "Payment " + b64Encode(envelope);
+        return "Payment " + b64Encode(credential.toEnvelope(credential.challenge().request()));
     }
 
     // --- Payment-Receipt ---
@@ -223,5 +215,14 @@ final class Parsing {
         String lower = header.toLowerCase();
         if (!lower.startsWith(scheme)) return header;
         return header.substring(scheme.length()).stripLeading();
+    }
+
+    static Map<String, Object> decodeOpaque(String opaque) {
+        if (opaque == null) return null;
+        try {
+            return ChallengeId.b64urlDecodeToMap(opaque);
+        } catch (ParseException e) {
+            return null;
+        }
     }
 }

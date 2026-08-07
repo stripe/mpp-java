@@ -1,5 +1,11 @@
 package com.stripe.mpp.server;
 
+import com.stripe.mpp.Challenge;
+import com.stripe.mpp.Credential;
+import com.stripe.mpp.Receipt;
+import com.stripe.mpp.error.MalformedCredentialException;
+import com.stripe.mpp.error.ParseException;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -51,6 +57,35 @@ public class MppHandler {
     public Map<String, Object> defaults() { return defaults; }
 
     /**
+     * Validate a credential without broadcasting or consuming it.
+     *
+     * <p>The echoed challenge is HMAC-checked, matched to this handler, and checked for expiry
+     * before the intent's non-mutating validation hook runs.
+     */
+    public ValidationResult validateCredential(String authorization, Intent intent) {
+        return validateCredential(Verify.parseCredential(authorization), intent);
+    }
+
+    /** Validate a parsed credential without broadcasting or consuming it. */
+    public ValidationResult validateCredential(Credential credential, Intent intent) {
+        Map<String, Object> request = prepareCredential(credential, intent);
+        return intent.validate(credential, request);
+    }
+
+    /**
+     * Re-validate and perform the terminal payment operation for a credential.
+     */
+    public Receipt broadcastCredential(String authorization, Intent intent) {
+        return broadcastCredential(Verify.parseCredential(authorization), intent);
+    }
+
+    /** Re-validate and perform the terminal payment operation for a parsed credential. */
+    public Receipt broadcastCredential(Credential credential, Intent intent) {
+        Map<String, Object> request = prepareCredential(credential, intent);
+        return intent.verify(credential, request);
+    }
+
+    /**
      * Verify a payment credential or issue a new challenge.
      *
      * @param authorization  the Authorization header value (may be null)
@@ -72,9 +107,7 @@ public class MppHandler {
         Map<String, Object> meta,
         String expires
     ) {
-        if (!method.intents().contains(intent.getClass())) {
-            throw new IllegalArgumentException("Method does not support " + intent.getClass().getSimpleName() + " intents");
-        }
+        requireSupported(intent);
 
         String resolvedCurrency  = currency  != null ? currency  : (String) defaults.get("currency");
         String resolvedRecipient = recipient != null ? recipient : (String) defaults.get("recipient");
@@ -114,6 +147,19 @@ public class MppHandler {
     public VerifyResult charge(String authorization, ChargeRequest req) {
         return charge(authorization, req.intent(), req.amount(), req.currency(),
                       req.recipient(), req.description(), req.meta(), req.expires());
+    }
+
+    /**
+     * Mint a fresh payment challenge for the given charge, e.g. for the WWW-Authenticate
+     * header of an error response.
+     */
+    public Challenge challenge(ChargeRequest req) {
+        requireSupported(req.intent());
+        Map<String, Object> request = buildRequest(chargeDescriptor(req));
+        return Verify.createChallenge(
+            method.name(), req.intent(), request, realm, secretKey,
+            req.description(), req.meta(), req.expires()
+        );
     }
 
     /**
@@ -162,5 +208,20 @@ public class MppHandler {
         if (method.chain()    != null) request.put("chain",     method.chain());
 
         return method.transformRequest(request);
+    }
+
+    private Map<String, Object> prepareCredential(Credential credential, Intent intent) {
+        requireSupported(intent);
+        try {
+            return Verify.assertCredential(credential, intent, realm, secretKey, method.name());
+        } catch (ParseException e) {
+            throw new MalformedCredentialException(e.getMessage());
+        }
+    }
+
+    private void requireSupported(Intent intent) {
+        if (method.intents().stream().noneMatch(type -> type.isInstance(intent))) {
+            throw new IllegalArgumentException("Method does not support " + intent.getClass().getSimpleName() + " intents");
+        }
     }
 }

@@ -23,8 +23,24 @@ public final class ChallengeId {
         String digest,
         Map<String, Object> opaque
     ) {
+        return generateWithOpaque(
+            secretKey, realm, method, intent, request, expires, digest,
+            encodeOpaque(opaque)
+        );
+    }
+
+    /** Generate an ID using the exact wire-format opaque value. */
+    public static String generateWithOpaque(
+        String secretKey,
+        String realm,
+        String method,
+        String intent,
+        Map<String, Object> request,
+        String expires,
+        String digest,
+        String opaque
+    ) {
         String requestB64 = b64urlEncode(Json.compact(request));
-        String opaqueB64 = opaque != null ? b64urlEncode(Json.compact(opaque)) : "";
 
         String input = String.join("|",
             realm,
@@ -33,7 +49,7 @@ public final class ChallengeId {
             requestB64,
             expires != null ? expires : "",
             digest != null ? digest : "",
-            opaqueB64
+            opaque != null ? opaque : ""
         );
 
         byte[] hmac = hmacSha256(
@@ -41,6 +57,14 @@ public final class ChallengeId {
             input.getBytes(StandardCharsets.UTF_8)
         );
         return b64urlEncodeBytes(hmac);
+    }
+
+    /**
+     * Encode opaque metadata to the wire form bound by {@link #generateWithOpaque}
+     * (base64url of compact JSON), or null when there is no metadata.
+     */
+    public static String encodeOpaque(Map<String, Object> opaque) {
+        return opaque != null ? b64urlEncode(Json.compact(opaque)) : null;
     }
 
     public static String b64urlEncode(String str) {

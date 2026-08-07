@@ -1,6 +1,7 @@
 package com.stripe.mpp.error;
 
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class PaymentException extends RuntimeException {
@@ -9,12 +10,27 @@ public class PaymentException extends RuntimeException {
     private final int httpStatus;
     private final String type;
     private final String title;
+    /** Safe structured context emitted as the RFC 9457 {@code details} extension member. */
+    private final Map<String, Object> details;
 
     public PaymentException(String message, int httpStatus, String type, String title) {
+        this(message, httpStatus, type, title, null);
+    }
+
+    public PaymentException(
+        String message,
+        int httpStatus,
+        String type,
+        String title,
+        Map<String, Object> details
+    ) {
         super(message);
         this.httpStatus = httpStatus;
         this.type = type;
         this.title = title;
+        this.details = details == null || details.isEmpty()
+            ? Map.of()
+            : Collections.unmodifiableMap(new LinkedHashMap<>(details));
     }
 
     public PaymentException(String message) {
@@ -24,20 +40,25 @@ public class PaymentException extends RuntimeException {
     public int getHttpStatus() { return httpStatus; }
     public String getType() { return type; }
     public String getTitle() { return title; }
+    public Map<String, Object> getDetails() { return details; }
 
     public Map<String, Object> toProblemDetails() {
         return toProblemDetails(null);
     }
 
     public Map<String, Object> toProblemDetails(String challengeId) {
-        Map<String, Object> details = new HashMap<>();
-        details.put("type", type);
-        details.put("title", title);
-        details.put("status", httpStatus);
-        details.put("detail", getMessage());
-        if (challengeId != null) {
-            details.put("challengeId", challengeId);
+        Map<String, Object> problem = new LinkedHashMap<>();
+        problem.put("type", type);
+        problem.put("title", title);
+        problem.put("status", httpStatus);
+        // "detail" is the RFC 9457 message; "details" is structured extension data.
+        problem.put("detail", getMessage());
+        if (!details.isEmpty()) {
+            problem.put("details", details);
         }
-        return details;
+        if (challengeId != null) {
+            problem.put("challengeId", challengeId);
+        }
+        return problem;
     }
 }

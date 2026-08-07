@@ -1,9 +1,11 @@
 package com.stripe.mpp;
 
+import com.stripe.mpp.error.InvalidChallengeException;
 import com.stripe.mpp.error.PaymentException;
 import com.stripe.mpp.server.*;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -34,6 +36,53 @@ class IntegrationTest {
         @Override
         public List<Class<? extends Intent>> intents() {
             return List.of(ChargeIntent.class);
+        }
+    }
+
+    static class SplitChargeIntent implements Intent {
+        int validations;
+        int broadcasts;
+
+        @Override
+        public String name() { return "charge"; }
+
+        @Override
+        public ValidationResult validate(Credential credential, Map<String, Object> request) {
+            validations++;
+            return new ValidationResult(credential, request, Map.of("risk", "accepted"));
+        }
+
+        @Override
+        public Receipt broadcast(Credential credential, Map<String, Object> request) {
+            broadcasts++;
+            return Receipt.success("split-ref", "test");
+        }
+    }
+
+    static class VerifiableMethod implements Method {
+        @Override
+        public String name() { return "test"; }
+
+        @Override
+        public List<Class<? extends Intent>> intents() {
+            return List.of(SplitChargeIntent.class);
+        }
+    }
+
+    static class HybridSplitIntent extends SplitChargeIntent {
+        int legacyVerifications;
+
+        @Override
+        public Receipt verify(Credential credential, Map<String, Object> request) {
+            legacyVerifications++;
+            return Receipt.success("legacy-ref", "test");
+        }
+    }
+
+    static class HybridSplitMethod implements Method {
+        @Override public String name() { return "test"; }
+        @Override public List<Class<? extends Intent>> intents() {
+            return List.of(HybridSplitIntent.class);
         }
     }
 
@@ -94,6 +143,202 @@ class IntegrationTest {
         VerifyResult.Verified verified = (VerifyResult.Verified) step2;
         assertThat(verified.receipt().status()).isEqualTo("success");
         assertThat(verified.receipt().reference()).isEqualTo("tx-ref-12345");
+    }
+
+    @Test
+    void standaloneLifecycleSeparatesValidationAndBroadcast() {
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", "super-secret");
+        SplitChargeIntent intent = new SplitChargeIntent();
+        VerifyResult challenged = server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        );
+        Challenge challenge = ((VerifyResult.Challenged) challenged).challenge();
+        Credential credential = new Credential(challenge.toEcho(), Map.of("sig", "x"), "payer");
+
+        ValidationResult validation = server.validateCredential(credential, intent);
+        assertThat(validation.method()).isEqualTo("test");
+        assertThat(validation.intent()).isEqualTo("charge");
+        assertThat(validation.source()).isEqualTo("payer");
+        assertThat(validation.details()).containsEntry("risk", "accepted");
+        assertThat(intent.validations).isEqualTo(1);
+        assertThat(intent.broadcasts).isZero();
+
+        Receipt receipt = server.broadcastCredential(credential, intent);
+        assertThat(receipt.reference()).isEqualTo("split-ref");
+        assertThat(intent.validations).isEqualTo(2);
+        assertThat(intent.broadcasts).isEqualTo(1);
+    }
+
+    @Test
+    void broadcastCredentialSupportsLegacyVerifyOnlyIntents() {
+        MppHandler server = Mpp.create(new TestMethod(), "api.example.com", "super-secret");
+        ChargeIntent intent = new ChargeIntent();
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        )).challenge();
+
+        Receipt receipt = server.broadcastCredential(
+            new Credential(challenge.toEcho(), Map.of("sig", "x"), null), intent
+        );
+
+        assertThat(receipt.reference()).isEqualTo("tx-ref-12345");
+    }
+
+    @Test
+    void anOverriddenVerifyControlsChargeAndBroadcastPaths() {
+        MppHandler server = Mpp.create(
+            new HybridSplitMethod(), "api.example.com", "super-secret"
+        );
+        HybridSplitIntent intent = new HybridSplitIntent();
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        )).challenge();
+        Credential credential = new Credential(
+            challenge.toEcho(), Map.of("sig", "x"), null
+        );
+
+        Receipt standalone = server.broadcastCredential(credential, intent);
+        VerifyResult combined = server.charge(
+            credential.toAuthorization(), intent, "10.000000", "USDC", "0xRecipient",
+            null, null, challenge.expires()
+        );
+
+        assertThat(standalone.reference()).isEqualTo("legacy-ref");
+        assertThat(combined).isInstanceOf(VerifyResult.Verified.class);
+        assertThat(((VerifyResult.Verified) combined).receipt().reference()).isEqualTo("legacy-ref");
+        assertThat(intent.legacyVerifications).isEqualTo(2);
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
+    }
+
+    @Test
+    void specOpaqueCredentialPassesRouteBindingAndSplitLifecycle() {
+        String secret = "super-secret";
+        SplitChargeIntent intent = new SplitChargeIntent();
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", secret);
+        Map<String, Object> meta = Map.of("route", "/api/photo");
+        String expires = "2099-01-01T00:00:00Z";
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient",
+            null, meta, expires
+        )).challenge();
+        Map<String, Object> echo = new LinkedHashMap<>();
+        echo.put("id", challenge.id());
+        echo.put("realm", challenge.realm());
+        echo.put("method", challenge.method());
+        echo.put("intent", challenge.intent());
+        echo.put("request", challenge.requestB64());
+        echo.put("expires", challenge.expires());
+        echo.put("opaque", challenge.opaqueRaw());
+        String authorization = "Payment " + ChallengeId.b64urlEncode(Json.compact(Map.of(
+            "challenge", echo,
+            "payload", Map.of("sig", "x")
+        )));
+
+        VerifyResult result = server.charge(
+            authorization, intent, "10.000000", "USDC", "0xRecipient",
+            null, meta, expires
+        );
+
+        assertThat(result).isInstanceOf(VerifyResult.Verified.class);
+        assertThat(intent.validations).isEqualTo(1);
+        assertThat(intent.broadcasts).isEqualTo(1);
+    }
+
+    @Test
+    void differentOpaqueMetadataForcesAChallengeBeforeLifecycleHooks() {
+        SplitChargeIntent intent = new SplitChargeIntent();
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", "super-secret");
+        String expires = "2099-01-01T00:00:00Z";
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient",
+            null, Map.of("route", "/api/photo"), expires
+        )).challenge();
+
+        VerifyResult result = server.charge(
+            new Credential(challenge.toEcho(), Map.of("sig", "x"), null).toAuthorization(),
+            intent, "10.000000", "USDC", "0xRecipient",
+            null, Map.of("route", "/api/video"), expires
+        );
+
+        assertThat(result).isInstanceOf(VerifyResult.Challenged.class);
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
+    }
+
+    @Test
+    void standaloneStringApiNormalizesMalformedEchoRequest() {
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", "super-secret");
+        SplitChargeIntent intent = new SplitChargeIntent();
+        Map<String, Object> challenge = new LinkedHashMap<>();
+        challenge.put("id", "untrusted");
+        challenge.put("realm", "api.example.com");
+        challenge.put("method", "test");
+        challenge.put("intent", "charge");
+        challenge.put("request", "not-base64url!");
+        challenge.put("expires", "2099-01-01T00:00:00Z");
+        String authorization = "Payment " + ChallengeId.b64urlEncode(Json.compact(Map.of(
+            "challenge", challenge,
+            "payload", Map.of("sig", "x")
+        )));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> server.validateCredential(authorization, intent)
+        ).isInstanceOf(com.stripe.mpp.error.MalformedCredentialException.class)
+            .hasMessageContaining("base64url");
+    }
+
+    @Test
+    void standaloneLifecycleRejectsTamperedChallenge() {
+        MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", "super-secret");
+        SplitChargeIntent intent = new SplitChargeIntent();
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        )).challenge();
+        ChallengeEcho echo = challenge.toEcho();
+        Credential credential = new Credential(
+            new ChallengeEcho(
+                "tampered", echo.realm(), echo.method(), echo.intent(), echo.request(),
+                echo.expires(), echo.digest(), echo.opaque()
+            ),
+            Map.of("sig", "x"),
+            null
+        );
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> server.validateCredential(credential, intent)
+        ).isInstanceOf(InvalidChallengeException.class);
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
+    }
+
+    @Test
+    void standaloneLifecycleRejectsMissingEchoRequest() {
+        String secret = "super-secret";
+        String realm = "api.example.com";
+        String expires = "2099-01-01T00:00:00Z";
+        MppHandler server = Mpp.create(new VerifiableMethod(), realm, secret);
+        SplitChargeIntent intent = new SplitChargeIntent();
+        String id = ChallengeId.generateWithOpaque(
+            secret, realm, "test", "charge", Map.of(), expires, null, null
+        );
+
+        for (String request : new String[] { null, "" }) {
+            Credential credential = new Credential(
+                new ChallengeEcho(
+                    id, realm, "test", "charge", request, expires, null, null
+                ),
+                Map.of("sig", "x"),
+                null
+            );
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> server.validateCredential(credential, intent)
+            ).isInstanceOf(InvalidChallengeException.class)
+                .hasMessageContaining("missing required challenge fields");
+        }
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
     }
 
     @Test

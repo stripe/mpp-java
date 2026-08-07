@@ -1,5 +1,7 @@
 package com.stripe.mpp;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -32,6 +34,30 @@ public final class Credential {
      */
     public String toAuthorization() {
         return Parsing.formatAuthorization(this);
+    }
+
+    /**
+     * Build the credential's wire envelope ({@code challenge}, {@code payload}, {@code source?})
+     * using the given representation of the echoed request — the base64url string for the
+     * Authorization header, or the decoded map for the relay API. This is the single canonical
+     * serialization of the echoed challenge fields.
+     */
+    public Map<String, Object> toEnvelope(Object request) {
+        Map<String, Object> challengeMap = new LinkedHashMap<>();
+        challengeMap.put("id", challenge.id());
+        challengeMap.put("realm", challenge.realm());
+        challengeMap.put("method", challenge.method());
+        challengeMap.put("intent", challenge.intent());
+        challengeMap.put("request", request);
+        if (challenge.expires() != null) challengeMap.put("expires", challenge.expires());
+        if (challenge.digest() != null)  challengeMap.put("digest", challenge.digest());
+        if (challenge.opaqueRaw() != null) challengeMap.put("opaque", challenge.opaqueRaw());
+
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("challenge", challengeMap);
+        envelope.put("payload", payload);
+        if (source != null) envelope.put("source", source);
+        return envelope;
     }
 
     @Override

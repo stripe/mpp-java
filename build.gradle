@@ -26,10 +26,13 @@ repositories {
 dependencies {
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.1'
     implementation 'com.stripe:stripe-java:25.3.0'
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.84'
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3'
     testImplementation 'org.assertj:assertj-core:3.26.0'
-    testImplementation 'org.web3j:crypto:4.9.8'
+    testImplementation('org.web3j:crypto:4.9.8') {
+        exclude group: 'org.bouncycastle', module: 'bcprov-jdk15on'
+    }
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -40,6 +43,12 @@ test {
 // --- Integration test source set ---
 
 sourceSets {
+    example {
+        java.srcDir 'examples/tempo-relay/src/main/java'
+        compileClasspath += sourceSets.main.output + configurations.runtimeClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+
     integrationTest {
         java.srcDir 'src/integrationTest/java'
         compileClasspath += sourceSets.main.output + configurations.testRuntimeClasspath
@@ -48,8 +57,21 @@ sourceSets {
 }
 
 configurations {
+    exampleImplementation.extendsFrom implementation
+    exampleRuntimeOnly.extendsFrom runtimeOnly
     integrationTestImplementation.extendsFrom testImplementation
     integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+tasks.register('runTempoRelayExample', JavaExec) {
+    description = "Runs the Tempo API relay-backed charge example."
+    group = 'application'
+    classpath = sourceSets.example.runtimeClasspath
+    mainClass = 'com.stripe.mpp.examples.TempoRelayServer'
+}
+
+tasks.named('test') {
+    dependsOn tasks.named('compileExampleJava')
 }
 
 tasks.register('integrationTest', Test) {

@@ -21,7 +21,7 @@ public class Json {
     }
 
     @SuppressWarnings("unchecked")
-    static Map<String, Object> parseMap(String json) {
+    public static Map<String, Object> parseMap(String json) {
         try {
             return MAPPER.readValue(json, Map.class);
         } catch (Exception e) {

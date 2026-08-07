@@ -4,6 +4,7 @@ import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.server.Intent;
+import com.stripe.mpp.server.ValidationResult;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -175,5 +176,31 @@ public class TempoChargeIntent implements Intent {
         }
 
         return false;
+    }
+}
+
+/** Relay-backed charge intent with explicit split validation and broadcast hooks. */
+final class TempoRelayChargeIntent extends TempoChargeIntent {
+    private final TempoRelay relay;
+
+    TempoRelayChargeIntent(String rpcUrl, TempoRelay relay) {
+        // Every rpc-reaching entry point is overridden below, so no TempoRpc is needed.
+        super(rpcUrl, null);
+        this.relay = relay;
+    }
+
+    @Override
+    public ValidationResult validate(Credential credential, Map<String, Object> request) {
+        return relay.validate(credential);
+    }
+
+    @Override
+    public Receipt broadcast(Credential credential, Map<String, Object> request) {
+        return relay.broadcast(credential);
+    }
+
+    @Override
+    public Receipt verify(Credential credential, Map<String, Object> request) {
+        return relay.verify(credential);
     }
 }

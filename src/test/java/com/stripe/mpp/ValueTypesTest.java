@@ -1,6 +1,7 @@
 package com.stripe.mpp;
 
 import com.stripe.mpp.server.VerifyResult;
+import com.stripe.mpp.server.ValidationResult;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -49,6 +50,9 @@ class ValueTypesTest {
         assertThat(challenge.expires()).isEqualTo("2099-01-01T00:00:00Z");
         assertThat(challenge.description()).isEqualTo("description");
         assertThat(challenge.opaque()).isSameAs(opaque);
+        assertThat(challenge.opaqueRaw()).isEqualTo(
+            ChallengeId.b64urlEncode(Json.compact(opaque))
+        );
         assertThat(challenge).isEqualTo(equivalent).hasSameHashCodeAs(equivalent);
     }
 
@@ -84,7 +88,23 @@ class ValueTypesTest {
         assertThat(echo.expires()).isEqualTo("2099-01-01T00:00:00Z");
         assertThat(echo.digest()).isEqualTo("sha-256=abc");
         assertThat(echo.opaque()).isSameAs(opaque);
+        assertThat(echo.opaqueRaw()).isEqualTo(
+            ChallengeId.b64urlEncode(Json.compact(opaque))
+        );
         assertThat(echo).isEqualTo(equivalent).hasSameHashCodeAs(equivalent);
+    }
+
+    @Test
+    void challengeEchoCanPreserveRawOpaqueWithoutDecodedMetadata() {
+        String opaque = ChallengeId.b64urlEncode("xy wrong");
+
+        ChallengeEcho echo = ChallengeEcho.fromWire(
+            "id", "realm", "tempo", "charge", "request", null, null,
+            opaque, Parsing.decodeOpaque(opaque)
+        );
+
+        assertThat(echo.opaqueRaw()).isEqualTo(opaque);
+        assertThat(echo.opaque()).isNull();
     }
 
     @Test
@@ -133,5 +153,28 @@ class ValueTypesTest {
         assertThat(verified.credential()).isSameAs(credential);
         assertThat(verified.receipt()).isSameAs(receipt);
         assertThat(verified).isEqualTo(equivalentVerified).hasSameHashCodeAs(equivalentVerified);
+    }
+
+    @Test
+    void validationResultPreservesRecordStyleApiAndValueSemantics() {
+        ChallengeEcho echo = new ChallengeEcho(
+            "id", "realm", "tempo", "charge", "request", null, null, null
+        );
+        Credential credential = new Credential(echo, Map.of("hash", "0xabc"), "payer");
+        ValidationResult result = new ValidationResult(
+            credential, Map.of("amount", "1"), Map.of("mode", "push")
+        );
+        ValidationResult equivalent = new ValidationResult(
+            credential, Map.of("amount", "1"), Map.of("mode", "push")
+        );
+
+        assertThat(result.credential()).isSameAs(credential);
+        assertThat(result.challenge()).isSameAs(echo);
+        assertThat(result.request()).containsEntry("amount", "1");
+        assertThat(result.details()).containsEntry("mode", "push");
+        assertThat(result.method()).isEqualTo("tempo");
+        assertThat(result.intent()).isEqualTo("charge");
+        assertThat(result.source()).isEqualTo("payer");
+        assertThat(result).isEqualTo(equivalent).hasSameHashCodeAs(equivalent);
     }
 }

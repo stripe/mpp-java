@@ -5,8 +5,12 @@ import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.server.Intent;
 import com.stripe.mpp.server.ValidationResult;
+import org.bouncycastle.util.encoders.DecoderException;
+import org.bouncycastle.util.encoders.Hex;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -37,6 +41,8 @@ public class TempoChargeIntent implements Intent {
         "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
     static final String TRANSFER_WITH_MEMO_TOPIC =
         "0x57bc7354aa85aed339e000bccffabbc529466af35f0772c8f8ee1145927de7f0";
+    private static final String ERC20_TRANSFER_SELECTOR = "a9059cbb";
+    private static final int TEMPO_TRANSACTION_TYPE = 0x76;
 
     private final String rpcUrl;
     private final int maxRetries;
@@ -82,6 +88,7 @@ public class TempoChargeIntent implements Intent {
     }
 
     private Receipt verifyTransaction(String rawTx, Map<String, Object> request) {
+        validateTransactionPayment(rawTx, request);
         String txHash = rpc.sendRawTransaction(rpcUrl, rawTx);
         return awaitReceipt(txHash, request);
     }
@@ -176,6 +183,174 @@ public class TempoChargeIntent implements Intent {
         }
 
         return false;
+    }
+
+    private static void validateTransactionPayment(String rawTx, Map<String, Object> request) {
+        String currency  = (String) request.get("currency");
+        String recipient = (String) request.get("recipient");
+        String amountStr = (String) request.get("amount");
+
+        if (currency == null || recipient == null || amountStr == null) {
+            throw new VerificationFailedException("missing transaction payment constraints");
+        }
+
+        BigInteger expectedAmount;
+        try {
+            expectedAmount = new BigInteger(amountStr);
+        } catch (NumberFormatException e) {
+            throw new VerificationFailedException("invalid transaction amount");
+        }
+
+        byte[] bytes = decodeHex(rawTx);
+        if (bytes.length < 2 || Byte.toUnsignedInt(bytes[0]) != TEMPO_TRANSACTION_TYPE) {
+            throw new VerificationFailedException("invalid Tempo transaction type");
+        }
+
+        RlpValue transaction = RlpValue.decode(bytes, 1);
+        if (transaction.end != bytes.length || !transaction.isList() || transaction.items().size() != 14) {
+            throw new VerificationFailedException("malformed Tempo transaction");
+        }
+        if (transaction.items().get(13).data().length != 65) {
+            throw new VerificationFailedException("malformed Tempo transaction signature");
+        }
+
+        RlpValue calls = transaction.items().get(4);
+        if (!calls.isList()) {
+            throw new VerificationFailedException("malformed Tempo transaction calls");
+        }
+
+        String expectedCurrency = normalizeAddress(currency);
+        String expectedRecipient = normalizeAddress(recipient);
+        for (RlpValue call : calls.items()) {
+            if (!call.isList() || call.items().size() < 3) continue;
+            String to = normalizeAddress(call.items().get(0).data());
+            if (!expectedCurrency.equals(to)) continue;
+
+            byte[] input = call.items().get(2).data();
+            if (input.length < 68) continue;
+            String selector = Hex.toHexString(Arrays.copyOfRange(input, 0, 4));
+            if (!ERC20_TRANSFER_SELECTOR.equals(selector)) continue;
+
+            String actualRecipient = normalizeAddress(Arrays.copyOfRange(input, 16, 36));
+            BigInteger actualAmount = new BigInteger(1, Arrays.copyOfRange(input, 36, 68));
+            if (expectedRecipient.equals(actualRecipient) && expectedAmount.equals(actualAmount)) {
+                return;
+            }
+        }
+
+        throw new VerificationFailedException(
+            "transaction does not contain a Transfer matching the request currency, recipient, and amount"
+        );
+    }
+
+    private static byte[] decodeHex(String rawTx) {
+        if (rawTx == null || !rawTx.startsWith("0x") || rawTx.length() <= 2) {
+            throw new VerificationFailedException("missing or invalid transaction signature");
+        }
+        try {
+            return Hex.decodeStrict(rawTx, 2, rawTx.length() - 2);
+        } catch (DecoderException e) {
+            throw new VerificationFailedException("missing or invalid transaction signature");
+        }
+    }
+
+    private static String normalizeAddress(String address) {
+        if (address == null || !address.startsWith("0x") || address.length() != 42) {
+            throw new VerificationFailedException("invalid transaction address");
+        }
+        return address.toLowerCase();
+    }
+
+    private static String normalizeAddress(byte[] bytes) {
+        if (bytes.length != 20) {
+            throw new VerificationFailedException("invalid transaction address");
+        }
+        return "0x" + Hex.toHexString(bytes);
+    }
+
+    private static final class RlpValue {
+        private final byte[] data;
+        private final List<RlpValue> items;
+        private final int end;
+
+        private RlpValue(byte[] data, List<RlpValue> items, int end) {
+            this.data = data;
+            this.items = items;
+            this.end = end;
+        }
+
+        private boolean isList() {
+            return items != null;
+        }
+
+        private byte[] data() {
+            if (data == null) throw new VerificationFailedException("malformed RLP scalar");
+            return data;
+        }
+
+        private List<RlpValue> items() {
+            if (items == null) throw new VerificationFailedException("malformed RLP list");
+            return items;
+        }
+
+        private static RlpValue decode(byte[] bytes, int offset) {
+            if (offset >= bytes.length) throw new VerificationFailedException("truncated RLP");
+            int prefix = Byte.toUnsignedInt(bytes[offset]);
+            if (prefix < 0x80) {
+                return new RlpValue(new byte[] {bytes[offset]}, null, offset + 1);
+            }
+            if (prefix <= 0xb7) {
+                int length = prefix - 0x80;
+                int start = offset + 1;
+                int end = checkedEnd(bytes, start, length);
+                return new RlpValue(Arrays.copyOfRange(bytes, start, end), null, end);
+            }
+            if (prefix <= 0xbf) {
+                int lengthOfLength = prefix - 0xb7;
+                int start = offset + 1;
+                int length = readLength(bytes, start, lengthOfLength);
+                int dataStart = start + lengthOfLength;
+                int end = checkedEnd(bytes, dataStart, length);
+                return new RlpValue(Arrays.copyOfRange(bytes, dataStart, end), null, end);
+            }
+            if (prefix <= 0xf7) {
+                int length = prefix - 0xc0;
+                return decodeList(bytes, offset + 1, length);
+            }
+            int lengthOfLength = prefix - 0xf7;
+            int start = offset + 1;
+            int length = readLength(bytes, start, lengthOfLength);
+            return decodeList(bytes, start + lengthOfLength, length);
+        }
+
+        private static RlpValue decodeList(byte[] bytes, int start, int length) {
+            int end = checkedEnd(bytes, start, length);
+            List<RlpValue> items = new ArrayList<>();
+            int cursor = start;
+            while (cursor < end) {
+                RlpValue item = decode(bytes, cursor);
+                items.add(item);
+                cursor = item.end;
+            }
+            if (cursor != end) throw new VerificationFailedException("malformed RLP list");
+            return new RlpValue(null, items, end);
+        }
+
+        private static int readLength(byte[] bytes, int start, int lengthOfLength) {
+            int end = checkedEnd(bytes, start, lengthOfLength);
+            int length = 0;
+            for (int i = start; i < end; i++) {
+                length = (length << 8) | Byte.toUnsignedInt(bytes[i]);
+            }
+            return length;
+        }
+
+        private static int checkedEnd(byte[] bytes, int start, int length) {
+            if (length < 0 || start < 0 || start > bytes.length - length) {
+                throw new VerificationFailedException("truncated RLP");
+            }
+            return start + length;
+        }
     }
 }
 

@@ -63,9 +63,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: mpp-tools/conformance/package-lock.json
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Install conformance runner dependencies
         run: make install-runner

@@ -223,7 +223,7 @@ class StripeChargeIntentTest {
     @Test
     void idempotencyKeyDerivedFromChallengeIdAndSpt() {
         String key = StripeApi.buildIdempotencyKey("chal-id", "spt_xxx");
-        assertThat(key).isEqualTo("mpp-java_chal-id_spt_xxx");
+        assertThat(key).isEqualTo("mpp_chal-id_spt_xxx");
     }
 
     @Test

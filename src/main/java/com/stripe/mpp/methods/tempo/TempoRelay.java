@@ -30,7 +30,7 @@ public final class TempoRelay {
     public static final URI DEFAULT_API_BASE_URL = URI.create("https://api.tempo.xyz/");
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
-    private static final String IDEMPOTENCY_KEY_PREFIX = "mpp_java_";
+    private static final String IDEMPOTENCY_KEY_PREFIX = "mpp_";
     // Relay error codes safe to forward to payers as failure details; "expired" maps to a
     // typed exception before this set is consulted, and all remaining codes map to a
     // generic failure.

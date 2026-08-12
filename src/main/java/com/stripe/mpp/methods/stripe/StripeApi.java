@@ -85,6 +85,6 @@ class StripeApi {
     }
 
     static String buildIdempotencyKey(String challengeId, String spt) {
-        return "mpp-java_" + challengeId + "_" + spt;
+        return "mpp_" + challengeId + "_" + spt;
     }
 }

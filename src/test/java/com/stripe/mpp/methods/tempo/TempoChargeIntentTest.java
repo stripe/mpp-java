@@ -87,6 +87,10 @@ class TempoChargeIntentTest {
         return new TempoChargeIntent(RPC_URL, 5, 0, rpc);
     }
 
+    static TempoChargeIntent intent(TempoRpc rpc, Store store) {
+        return new TempoChargeIntent(RPC_URL, 5, 0, rpc, store);
+    }
+
     // --- Existing transport / broadcast tests ---
 
     @Test
@@ -131,6 +135,86 @@ class TempoChargeIntentTest {
         Receipt receipt = intent(rpc).verify(hashCredential("0xpushedtx"), REQUEST);
 
         assertThat(receipt.reference()).isEqualTo("0xpushedtx");
+    }
+
+    // --- Hash replay protection (AGR / stripe/mpp-java#15) ---
+
+    @Test
+    void pushPaymentReplayedHashIsRejected() {
+        // Regression test for stripe/mpp-java#15: the same push-mode transaction
+        // hash must not be able to produce two successful receipts, even against
+        // requests with identical terms.
+        Store store = new MemoryStore();
+        StubRpc rpc = new StubRpc(null, successReceipt(), 0);
+        TempoChargeIntent charge = intent(rpc, store);
+
+        Receipt first = charge.verify(hashCredential("0xpushedtx"), REQUEST);
+        assertThat(first.reference()).isEqualTo("0xpushedtx");
+
+        assertThatThrownBy(() -> charge.verify(hashCredential("0xpushedtx"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("already used");
+    }
+
+    @Test
+    void pushPaymentHashClaimIsCaseInsensitive() {
+        // 0xABC... and 0xabc... must claim the same replay-protection slot —
+        // EVM tx hashes are case-insensitive.
+        Store store = new MemoryStore();
+        StubRpc rpc = new StubRpc(null, successReceipt(), 0);
+        TempoChargeIntent charge = intent(rpc, store);
+
+        charge.verify(hashCredential("0xPUSHEDTX"), REQUEST);
+
+        assertThatThrownBy(() -> charge.verify(hashCredential("0xpushedtx"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("already used");
+    }
+
+    @Test
+    void nonMatchingHashDoesNotConsumeReplaySlot() {
+        // A hash that fails the log-matching check first shouldn't burn a
+        // replay-protection claim — only a hash that actually satisfies a
+        // request should ever become unusable.
+        Store store = new MemoryStore();
+        Map<String, Object> receipt = Map.of("status", "0x1", "from", SENDER, "logs", List.of());
+        StubRpc rpc = new StubRpc(null, receipt, 0);
+        TempoChargeIntent charge = intent(rpc, store);
+
+        assertThatThrownBy(() -> charge.verify(hashCredential("0xunrelated"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("Transfer");
+
+        assertThat(store.get("tempo:hash:0xunrelated")).isEmpty();
+    }
+
+    @Test
+    void differentHashesClaimIndependently() {
+        Store store = new MemoryStore();
+        StubRpc rpcA = new StubRpc(null, successReceipt(), 0);
+        StubRpc rpcB = new StubRpc(null, successReceipt(), 0);
+
+        intent(rpcA, store).verify(hashCredential("0xtxA"), REQUEST);
+        Receipt second = intent(rpcB, store).verify(hashCredential("0xtxB"), REQUEST);
+
+        assertThat(second.reference()).isEqualTo("0xtxB");
+    }
+
+    @Test
+    void pullModeHashCannotBeReplayedViaHashMode() {
+        // Cross-mode replay: a hash that already produced a successful receipt via
+        // the "transaction" (pull) flow must not be usable a second time via a
+        // "hash" (push) credential — both flows share the same replay namespace.
+        Store store = new MemoryStore();
+        StubRpc rpc = new StubRpc("0xsharedhash", successReceipt(), 0);
+        TempoChargeIntent charge = intent(rpc, store);
+
+        Receipt first = charge.verify(txCredential("0xsignedtx"), REQUEST);
+        assertThat(first.reference()).isEqualTo("0xsharedhash");
+
+        assertThatThrownBy(() -> charge.verify(hashCredential("0xsharedhash"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("already used");
     }
 
     @Test

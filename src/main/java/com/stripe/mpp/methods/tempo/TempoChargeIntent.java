@@ -1,5 +1,6 @@
 package com.stripe.mpp.methods.tempo;
 
+import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.VerificationFailedException;
@@ -72,32 +73,32 @@ public class TempoChargeIntent implements Intent {
         String type = (String) payload.get("type");
         if ("transaction".equals(type)) {
             // Pull: client signed the tx, server broadcasts it.
-            return verifyTransaction((String) payload.get("signature"), request);
+            return verifyTransaction((String) payload.get("signature"), request, credential.challenge());
         }
         if ("hash".equals(type)) {
             // Push: client already broadcast, server just verifies the receipt.
-            return verifyHash((String) payload.get("hash"), request);
+            return verifyHash((String) payload.get("hash"), request, credential.challenge());
         }
         throw new VerificationFailedException("unrecognized payload type: " + type);
     }
 
-    private Receipt verifyTransaction(String rawTx, Map<String, Object> request) {
+    private Receipt verifyTransaction(String rawTx, Map<String, Object> request, ChallengeEcho challenge) {
         String txHash = rpc.sendRawTransaction(rpcUrl, rawTx);
-        return awaitReceipt(txHash, request);
+        return awaitReceipt(txHash, request, challenge);
     }
 
-    private Receipt verifyHash(String txHash, Map<String, Object> request) {
-        return awaitReceipt(txHash, request);
+    private Receipt verifyHash(String txHash, Map<String, Object> request, ChallengeEcho challenge) {
+        return awaitReceipt(txHash, request, challenge);
     }
 
-    private Receipt awaitReceipt(String txHash, Map<String, Object> request) {
+    private Receipt awaitReceipt(String txHash, Map<String, Object> request, ChallengeEcho challenge) {
         for (int i = 0; i < maxRetries; i++) {
             Map<String, Object> receipt = rpc.getTransactionReceipt(rpcUrl, txHash);
             if (receipt != null) {
                 if (!"0x1".equals(receipt.get("status"))) {
                     throw new VerificationFailedException("transaction reverted");
                 }
-                if (!matchTransferLogs(receipt, request)) {
+                if (!matchTransferLogs(receipt, request, challenge)) {
                     throw new VerificationFailedException(
                         "transaction logs contain no Transfer matching the request currency, recipient, and amount"
                     );
@@ -120,10 +121,22 @@ public class TempoChargeIntent implements Intent {
      * Returns true if the receipt contains at least one ERC-20 Transfer (or TransferWithMemo)
      * log that matches the request's currency (token contract), recipient, sender, and amount.
      *
+     * <p>A {@code TransferWithMemo} log only counts as a match if its memo (topics[3]) either
+     * doesn't use the MPP attribution layout at all (an application-defined memo unrelated to
+     * MPP — left alone, since it isn't a credential-binding signal either way), or — when it
+     * does carry MPP attribution structure — is bound to this specific challenge (server
+     * fingerprint matches the challenge realm and the nonce matches the challenge ID). This
+     * stops a credential replay where an attacker submits a transaction whose memo was bound to
+     * a *different* challenge (or forged) but otherwise matches this challenge's currency,
+     * recipient, and amount. A plain {@code Transfer} (no memo at all) is still accepted,
+     * preserving the existing non-memo flow.
+     *
      * The request amount must already be in atomic units (i.e. after transformRequest has run).
      */
     @SuppressWarnings("unchecked")
-    private boolean matchTransferLogs(Map<String, Object> receipt, Map<String, Object> request) {
+    private boolean matchTransferLogs(
+        Map<String, Object> receipt, Map<String, Object> request, ChallengeEcho challenge
+    ) {
         String currency  = (String) request.get("currency");
         String recipient = (String) request.get("recipient");
         String amountStr = (String) request.get("amount");
@@ -161,6 +174,20 @@ public class TempoChargeIntent implements Intent {
 
             if (!toAddress.equalsIgnoreCase(recipient)) continue;
             if (sender != null && !fromAddress.equalsIgnoreCase(sender)) continue;
+
+            if (isTransferWithMemo) {
+                String memo = topics.get(3);
+                // If the memo uses the MPP attribution layout at all, it must be bound to
+                // *this* challenge — an attribution memo minted for a different challenge
+                // (or realm) must not be able to satisfy this one, even if every other field
+                // lines up. A memo that isn't MPP-attribution-shaped at all (e.g. an
+                // application-defined memo unrelated to MPP) is left alone here; it isn't a
+                // credential-binding signal either way.
+                if (Attribution.looksLikeAttributionMemo(memo)
+                    && !Attribution.isBoundToChallenge(memo, challenge.realm(), challenge.id())) {
+                    continue;
+                }
+            }
 
             String data = (String) log.get("data");
             if (data == null || data.length() < 66) continue;

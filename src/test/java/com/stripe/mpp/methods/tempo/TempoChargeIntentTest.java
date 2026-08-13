@@ -4,8 +4,12 @@ import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.VerificationFailedException;
+import org.bouncycastle.jcajce.provider.digest.Keccak;
+import org.bouncycastle.util.encoders.Hex;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -39,6 +43,26 @@ class TempoChargeIntentTest {
 
     static Credential hashCredential(String txHash) {
         return new Credential(ECHO, Map.of("type", "hash", "hash", txHash), null);
+    }
+
+    /**
+     * Builds a 32-byte MPP attribution memo (hex) bound to the given realm/challengeId,
+     * mirroring Attribution's byte layout independently — a test double, not a call into
+     * production code, so a bug in Attribution.java wouldn't hide behind a matching bug here.
+     */
+    static String attributionMemo(String realm, String challengeId) {
+        byte[] buf = new byte[32];
+        byte[] tag = keccak256("mpp".getBytes(StandardCharsets.UTF_8));
+        System.arraycopy(tag, 0, buf, 0, 4);
+        buf[4] = 0x01; // version
+        System.arraycopy(keccak256(realm.getBytes(StandardCharsets.UTF_8)), 0, buf, 5, 10);
+        // bytes 15-24 (client fingerprint) left as zero — anonymous client
+        System.arraycopy(keccak256(challengeId.getBytes(StandardCharsets.UTF_8)), 0, buf, 25, 7);
+        return "0x" + Hex.toHexString(buf);
+    }
+
+    private static byte[] keccak256(byte[] input) {
+        return new Keccak.Digest256().digest(input);
     }
 
     /** Build a receipt whose Transfer log exactly matches REQUEST. */
@@ -210,10 +234,11 @@ class TempoChargeIntentTest {
 
     @Test
     void transferWithMemoTopicAccepted() {
-        // TransferWithMemo has amount in data and memo in topics[3]; should still verify.
+        // TransferWithMemo has amount in data and a properly challenge-bound memo in topics[3];
+        // should still verify.
         String senderTopic    = "0x000000000000000000000000" + SENDER.substring(2);
         String recipientTopic = "0x000000000000000000000000" + RECIPIENT.substring(2);
-        String memoTopic      = "0x" + String.format("%064x", 42); // arbitrary memo
+        String memoTopic      = attributionMemo(ECHO.realm(), ECHO.id());
         String amountData     = "0x" + String.format("%064x", AMOUNT_ATOMIC);
         Map<String, Object> receipt = Map.of(
             "status", "0x1",
@@ -228,6 +253,66 @@ class TempoChargeIntentTest {
         StubRpc rpc = new StubRpc("0xtx", receipt, 0);
 
         Receipt result = intent(rpc).verify(txCredential("0xsignedtx"), REQUEST);
+        assertThat(result.status()).isEqualTo("success");
+    }
+
+    @Test
+    void transferWithMemoBoundToOtherChallengeRejected() {
+        // Regression test for AGR-2026-036: an attribution memo minted for a *different*
+        // challenge must not satisfy this one, even though every other field (contract,
+        // sender, recipient, amount) matches exactly.
+        String senderTopic    = "0x000000000000000000000000" + SENDER.substring(2);
+        String recipientTopic = "0x000000000000000000000000" + RECIPIENT.substring(2);
+        String foreignMemo    = attributionMemo(ECHO.realm(), "some-other-challenge-id");
+        String amountData     = "0x" + String.format("%064x", AMOUNT_ATOMIC);
+        Map<String, Object> receipt = Map.of(
+            "status", "0x1",
+            "from", SENDER,
+            "logs", List.of(Map.of(
+                "address", TOKEN_CONTRACT,
+                "topics", List.of(TempoChargeIntent.TRANSFER_WITH_MEMO_TOPIC,
+                    senderTopic, recipientTopic, foreignMemo),
+                "data", amountData
+            ))
+        );
+        StubRpc rpc = new StubRpc("0xtx", receipt, 0);
+
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential("0xsignedtx"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("Transfer");
+    }
+
+    @Test
+    void transferWithMemoBoundToOtherRealmRejected() {
+        // Same replay shape, but the memo's server fingerprint doesn't match this
+        // server's realm at all (e.g. minted by a different MPP deployment).
+        String senderTopic    = "0x000000000000000000000000" + SENDER.substring(2);
+        String recipientTopic = "0x000000000000000000000000" + RECIPIENT.substring(2);
+        String foreignMemo    = attributionMemo("other.example.com", ECHO.id());
+        String amountData     = "0x" + String.format("%064x", AMOUNT_ATOMIC);
+        Map<String, Object> receipt = Map.of(
+            "status", "0x1",
+            "from", SENDER,
+            "logs", List.of(Map.of(
+                "address", TOKEN_CONTRACT,
+                "topics", List.of(TempoChargeIntent.TRANSFER_WITH_MEMO_TOPIC,
+                    senderTopic, recipientTopic, foreignMemo),
+                "data", amountData
+            ))
+        );
+        StubRpc rpc = new StubRpc("0xtx", receipt, 0);
+
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential("0xsignedtx"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("Transfer");
+    }
+
+    @Test
+    void plainTransferWithoutMemoStillAccepted() {
+        // Non-memo Transfer flow must keep working unchanged — this fix only tightens
+        // TransferWithMemo handling, it doesn't require every payment to carry a memo.
+        Receipt result = intent(new StubRpc("0xtx", successReceipt(), 0))
+            .verify(txCredential("0xsignedtx"), REQUEST);
         assertThat(result.status()).isEqualTo("success");
     }
 

@@ -8,7 +8,9 @@ import com.stripe.mpp.server.ValidationResult;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Server-side intent that verifies Tempo payments.
@@ -21,10 +23,14 @@ import java.util.Map;
  *       the server polls for the receipt directly.</li>
  * </ul>
  *
+ * <p>Create the intent once and reuse it so its replay store is shared across requests:
+ *
  * <pre>{@code
+ * TempoChargeIntent chargeIntent = Tempo.chargeIntent();
+ *
  * VerifyResult result = server.charge(
  *     request.getHeader("Authorization"),
- *     Tempo.chargeIntent(),          // or Tempo.chargeIntent(true) for testnet
+ *     chargeIntent,
  *     "10.000000", "USDC", "0xRecipient"
  * );
  * }</pre>
@@ -37,25 +43,41 @@ public class TempoChargeIntent implements Intent {
         "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
     static final String TRANSFER_WITH_MEMO_TOPIC =
         "0x57bc7354aa85aed339e000bccffabbc529466af35f0772c8f8ee1145927de7f0";
+    private static final String REPLAY_KEY_PREFIX = "tempo:hash:";
 
     private final String rpcUrl;
     private final int maxRetries;
     private final long retryDelayMs;
     private final TempoRpc rpc;
+    private final Store store;
 
     public TempoChargeIntent(String rpcUrl) {
-        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc());
+        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc(), new MemoryStore());
+    }
+
+    /**
+     * Constructs an intent with an explicit replay-protection store.
+     *
+     * <p>Use a durable shared store for multi-process or multi-instance production deployments.
+     */
+    public TempoChargeIntent(String rpcUrl, Store store) {
+        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc(), store);
     }
 
     TempoChargeIntent(String rpcUrl, TempoRpc rpc) {
-        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, rpc);
+        this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, rpc, new MemoryStore());
     }
 
     TempoChargeIntent(String rpcUrl, int maxRetries, long retryDelayMs, TempoRpc rpc) {
+        this(rpcUrl, maxRetries, retryDelayMs, rpc, new MemoryStore());
+    }
+
+    TempoChargeIntent(String rpcUrl, int maxRetries, long retryDelayMs, TempoRpc rpc, Store store) {
         this.rpcUrl = rpcUrl;
         this.maxRetries = maxRetries;
         this.retryDelayMs = retryDelayMs;
         this.rpc = rpc;
+        this.store = Objects.requireNonNull(store, "store");
     }
 
     @Override
@@ -101,6 +123,10 @@ public class TempoChargeIntent implements Intent {
                     throw new VerificationFailedException(
                         "transaction logs contain no Transfer matching the request currency, recipient, and amount"
                     );
+                }
+                String key = REPLAY_KEY_PREFIX + txHash.toLowerCase(Locale.ROOT);
+                if (!store.putIfAbsent(key, txHash)) {
+                    throw new VerificationFailedException("transaction hash already used: " + txHash);
                 }
                 return Receipt.success(txHash, "tempo");
             }
@@ -185,7 +211,7 @@ final class TempoRelayChargeIntent extends TempoChargeIntent {
 
     TempoRelayChargeIntent(String rpcUrl, TempoRelay relay) {
         // Every rpc-reaching entry point is overridden below, so no TempoRpc is needed.
-        super(rpcUrl, null);
+        super(rpcUrl, (TempoRpc) null);
         this.relay = relay;
     }
 

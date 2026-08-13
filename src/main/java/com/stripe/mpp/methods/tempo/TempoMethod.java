@@ -27,15 +27,19 @@ public class TempoMethod implements Method {
     private final TempoChargeIntent chargeIntent;
 
     TempoMethod(String rpcUrl, int chainId) {
-        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null);
+        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null, new MemoryStore());
     }
 
     TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay) {
+        this(rpcUrl, chainId, decimals, relay, new MemoryStore());
+    }
+
+    TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay, Store store) {
         this.rpcUrl = rpcUrl;
         this.chainId = chainId;
         this.decimals = decimals;
         this.chargeIntent = relay == null
-            ? new TempoChargeIntent(rpcUrl, new TempoRpc())
+            ? new TempoChargeIntent(rpcUrl, store)
             : new TempoRelayChargeIntent(rpcUrl, relay);
     }
 
@@ -53,6 +57,7 @@ public class TempoMethod implements Method {
         private String rpcUrl   = TempoDefaults.MAINNET_RPC;
         private int    chainId  = TempoDefaults.MAINNET_CHAIN_ID;
         private TempoRelay relay;
+        private Store store;
 
         private Builder() {}
 
@@ -79,8 +84,22 @@ public class TempoMethod implements Method {
             return this;
         }
 
+        /**
+         * Configures replay-protection storage for direct Tempo charge verification.
+         *
+         * <p>Use a durable shared store for multi-process or multi-instance production deployments.
+         */
+        public Builder store(Store store) {
+            this.store = Objects.requireNonNull(store, "store");
+            return this;
+        }
+
         public TempoMethod build() {
-            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay);
+            if (relay != null && store != null) {
+                throw new IllegalStateException("store cannot be configured with relay");
+            }
+            Store replayStore = store != null ? store : new MemoryStore();
+            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay, replayStore);
         }
     }
 

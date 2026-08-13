@@ -8,6 +8,11 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -87,6 +92,10 @@ class TempoChargeIntentTest {
         return new TempoChargeIntent(RPC_URL, 5, 0, rpc);
     }
 
+    static TempoChargeIntent intent(TempoRpc rpc, Store store) {
+        return new TempoChargeIntent(RPC_URL, 5, 0, rpc, store);
+    }
+
     // --- Existing transport / broadcast tests ---
 
     @Test
@@ -131,6 +140,92 @@ class TempoChargeIntentTest {
         Receipt receipt = intent(rpc).verify(hashCredential("0xpushedtx"), REQUEST);
 
         assertThat(receipt.reference()).isEqualTo("0xpushedtx");
+    }
+
+    @Test
+    void replayedHashIsRejectedAcrossIntentsSharingAStore() {
+        Store store = new MemoryStore();
+
+        Receipt first = intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xpushedtx"), REQUEST);
+        assertThat(first.reference()).isEqualTo("0xpushedtx");
+
+        assertThatThrownBy(() -> intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xpushedtx"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("already used");
+    }
+
+    @Test
+    void concurrentVerificationAllowsExactlyOneClaim() throws Exception {
+        Store store = new MemoryStore();
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        Callable<Boolean> verify = () -> {
+            start.await();
+            try {
+                intent(new StubRpc(null, successReceipt(), 0), store)
+                    .verify(hashCredential("0xconcurrent"), REQUEST);
+                return true;
+            } catch (VerificationFailedException e) {
+                return false;
+            }
+        };
+
+        try {
+            Future<Boolean> first = pool.submit(verify);
+            Future<Boolean> second = pool.submit(verify);
+            start.countDown();
+
+            assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder(true, false);
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void replayedHashIsRejectedCaseInsensitively() {
+        Store store = new MemoryStore();
+
+        intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xPUSHEDTX"), REQUEST);
+
+        assertThatThrownBy(() -> intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xpushedtx"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("already used");
+    }
+
+    @Test
+    void nonMatchingHashDoesNotConsumeReplayClaim() {
+        Store store = new MemoryStore();
+        Map<String, Object> nonMatchingReceipt = Map.of(
+            "status", "0x1", "from", SENDER, "logs", List.of()
+        );
+
+        assertThatThrownBy(() -> intent(new StubRpc(null, nonMatchingReceipt, 0), store)
+            .verify(hashCredential("0xunrelated"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("Transfer");
+
+        Receipt receipt = intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xunrelated"), REQUEST);
+        assertThat(receipt.reference()).isEqualTo("0xunrelated");
+    }
+
+    @Test
+    void pullHashCannotBeReplayedAsPush() {
+        Store store = new MemoryStore();
+
+        Receipt first = intent(new StubRpc("0xshared", successReceipt(), 0), store)
+            .verify(txCredential("0xsignedtx"), REQUEST);
+        assertThat(first.reference()).isEqualTo("0xshared");
+
+        assertThatThrownBy(() -> intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xshared"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("already used");
     }
 
     @Test

@@ -103,6 +103,10 @@ public class StripeChargeIntent implements Intent {
         StripeApi.Result result = stripeApi.createAndConfirm(
             secretKey, amountMinorUnits, currency, spt, paymentMethodTypes, metadata, challengeId);
 
+        if (result.idempotentReplayed()) {
+            throw new VerificationFailedException(
+                "PaymentIntent " + result.id() + " was an idempotent replay, not a fresh charge");
+        }
         if ("requires_action".equals(result.status())) {
             throw new com.stripe.mpp.error.PaymentActionRequiredException(
                 "PaymentIntent " + result.id() + " requires action");

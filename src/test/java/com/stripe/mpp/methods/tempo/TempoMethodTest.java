@@ -50,6 +50,7 @@ class TempoMethodTest {
         assertThatThrownBy(() -> TempoMethod.of()
             .relay(TempoRelay.builder("api-key").build())
             .store(new MemoryStore())
-            .build()).isInstanceOf(IllegalStateException.class);
+            .build()
+        ).isInstanceOf(IllegalStateException.class);
     }
 }

@@ -1,6 +1,5 @@
 package com.stripe.mpp.consumer;
 
-import com.stripe.mpp.methods.tempo.MemoryStore;
 import com.stripe.mpp.methods.tempo.Store;
 import com.stripe.mpp.methods.tempo.TempoChargeIntent;
 import com.stripe.mpp.methods.tempo.TempoMethod;
@@ -12,7 +11,7 @@ class TempoStorePublicApiTest {
 
     @Test
     void externalConsumersCanConfigureReplayStorage() {
-        Store store = new MemoryStore();
+        Store store = (key, value) -> true;
 
         TempoChargeIntent intent = new TempoChargeIntent("https://rpc.example.com", store);
         TempoMethod method = TempoMethod.custom("https://rpc.example.com", 1337)

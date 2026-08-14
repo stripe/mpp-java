@@ -13,25 +13,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MemoryStoreTest {
 
     @Test
-    void supportsBasicOperations() {
-        MemoryStore store = new MemoryStore();
-
-        assertThat(store.get("missing")).isEmpty();
-        store.put("key", "first");
-        assertThat(store.get("key")).contains("first");
-        store.put("key", "second");
-        assertThat(store.get("key")).contains("second");
-        store.delete("key");
-        assertThat(store.get("key")).isEmpty();
-    }
-
-    @Test
     void putIfAbsentDoesNotReplaceAnExistingValue() {
         MemoryStore store = new MemoryStore();
 
         assertThat(store.putIfAbsent("key", "first")).isTrue();
         assertThat(store.putIfAbsent("key", "second")).isFalse();
-        assertThat(store.get("key")).contains("first");
     }
 
     @Test

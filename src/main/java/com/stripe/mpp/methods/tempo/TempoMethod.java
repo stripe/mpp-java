@@ -95,9 +95,6 @@ public class TempoMethod implements Method {
         }
 
         public TempoMethod build() {
-            if (relay != null && store != null) {
-                throw new IllegalStateException("store cannot be configured with relay");
-            }
             Store replayStore = store != null ? store : new MemoryStore();
             return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay, replayStore);
         }

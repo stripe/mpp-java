@@ -44,13 +44,4 @@ class TempoMethodTest {
             Map.of("amount", "0.0000001", "currency", "USDC", "recipient", "0xRecipient")
         )).isInstanceOf(IllegalArgumentException.class);
     }
-
-    @Test
-    void rejectsStoreWithRelay() {
-        assertThatThrownBy(() -> TempoMethod.of()
-            .relay(TempoRelay.builder("api-key").build())
-            .store(new MemoryStore())
-            .build()
-        ).isInstanceOf(IllegalStateException.class);
-    }
 }

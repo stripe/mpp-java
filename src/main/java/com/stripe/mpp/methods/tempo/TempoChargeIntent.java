@@ -5,6 +5,8 @@ import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.server.Intent;
 import com.stripe.mpp.server.ValidationResult;
+import com.stripe.mpp.store.MemoryStore;
+import com.stripe.mpp.store.Store;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -58,7 +60,7 @@ public class TempoChargeIntent implements Intent {
     /**
      * Constructs an intent with an explicit replay-protection store.
      *
-     * <p>Use a durable shared store for multi-process or multi-instance production deployments.
+     * <p>Use a durable store in production, shared across processes and instances.
      */
     public TempoChargeIntent(String rpcUrl, Store store) {
         this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc(), store);

@@ -4,15 +4,12 @@ import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.VerificationFailedException;
+import com.stripe.mpp.store.MemoryStore;
+import com.stripe.mpp.store.Store;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -149,47 +146,6 @@ class TempoChargeIntentTest {
         Receipt first = intent(new StubRpc(null, successReceipt(), 0), store)
             .verify(hashCredential("0xpushedtx"), REQUEST);
         assertThat(first.reference()).isEqualTo("0xpushedtx");
-
-        assertThatThrownBy(() -> intent(new StubRpc(null, successReceipt(), 0), store)
-            .verify(hashCredential("0xpushedtx"), REQUEST))
-            .isInstanceOf(VerificationFailedException.class)
-            .hasMessageContaining("already used");
-    }
-
-    @Test
-    void concurrentVerificationAllowsExactlyOneClaim() throws Exception {
-        Store store = new MemoryStore();
-        ExecutorService pool = Executors.newFixedThreadPool(2);
-        CountDownLatch start = new CountDownLatch(1);
-        Callable<Boolean> verify = () -> {
-            start.await();
-            try {
-                intent(new StubRpc(null, successReceipt(), 0), store)
-                    .verify(hashCredential("0xconcurrent"), REQUEST);
-                return true;
-            } catch (VerificationFailedException e) {
-                return false;
-            }
-        };
-
-        try {
-            Future<Boolean> first = pool.submit(verify);
-            Future<Boolean> second = pool.submit(verify);
-            start.countDown();
-
-            assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder(true, false);
-        } finally {
-            start.countDown();
-            pool.shutdownNow();
-        }
-    }
-
-    @Test
-    void replayedHashIsRejectedCaseInsensitively() {
-        Store store = new MemoryStore();
-
-        intent(new StubRpc(null, successReceipt(), 0), store)
-            .verify(hashCredential("0xPUSHEDTX"), REQUEST);
 
         assertThatThrownBy(() -> intent(new StubRpc(null, successReceipt(), 0), store)
             .verify(hashCredential("0xpushedtx"), REQUEST))

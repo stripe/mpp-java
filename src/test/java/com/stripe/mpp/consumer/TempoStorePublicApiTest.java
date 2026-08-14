@@ -1,8 +1,8 @@
 package com.stripe.mpp.consumer;
 
-import com.stripe.mpp.methods.tempo.Store;
 import com.stripe.mpp.methods.tempo.TempoChargeIntent;
 import com.stripe.mpp.methods.tempo.TempoMethod;
+import com.stripe.mpp.store.Store;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

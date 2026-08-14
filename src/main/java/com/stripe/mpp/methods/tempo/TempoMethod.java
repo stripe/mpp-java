@@ -2,6 +2,8 @@ package com.stripe.mpp.methods.tempo;
 
 import com.stripe.mpp.server.Intent;
 import com.stripe.mpp.server.Method;
+import com.stripe.mpp.store.MemoryStore;
+import com.stripe.mpp.store.Store;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -87,7 +89,7 @@ public class TempoMethod implements Method {
         /**
          * Configures replay-protection storage for direct Tempo charge verification.
          *
-         * <p>Use a durable shared store for multi-process or multi-instance production deployments.
+         * <p>Use a durable store in production, shared across processes and instances.
          */
         public Builder store(Store store) {
             this.store = Objects.requireNonNull(store, "store");

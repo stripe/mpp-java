@@ -1,20 +1,19 @@
 package com.stripe.mpp.store;
 
 /**
- * Atomic store for replay protection.
+ * Atomic claim store for replay protection.
  *
- * <p>Production implementations must be durable, shared across instances, and retain claims
- * indefinitely.
+ * <p>Production implementations must be durable and shared across processes / servers.
+ *
+ * <p>Invariant: exactly one caller may see {@code true} for a given {@code key}.
  */
 @FunctionalInterface
 public interface Store {
     /**
-     * Atomically stores a replay claim when {@code key} is absent.
+     * Atomically claims {@code key} if no claim already exists.
      *
      * @param key namespaced replay-claim key
-     * @param value value associated with the claim
-     * @return {@code true} when the value was inserted, or {@code false} when the key was
-     *     already present
+     * @return {@code true} for a fresh claim or {@code false} if the key was already claimed
      */
-    boolean putIfAbsent(String key, String value);
+    boolean tryClaim(String key);
 }

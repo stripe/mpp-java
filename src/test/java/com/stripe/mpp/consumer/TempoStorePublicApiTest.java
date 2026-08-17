@@ -11,7 +11,7 @@ class TempoStorePublicApiTest {
 
     @Test
     void externalConsumersCanConfigureReplayStorage() {
-        Store store = (key, value) -> true;
+        Store store = key -> true;
 
         TempoChargeIntent intent = new TempoChargeIntent("https://rpc.example.com", store);
         TempoMethod method = TempoMethod.custom("https://rpc.example.com", 1337)

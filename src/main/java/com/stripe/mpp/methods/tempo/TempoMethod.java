@@ -29,11 +29,11 @@ public class TempoMethod implements Method {
     private final TempoChargeIntent chargeIntent;
 
     TempoMethod(String rpcUrl, int chainId) {
-        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null, new MemoryStore());
+        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null, null);
     }
 
     TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay) {
-        this(rpcUrl, chainId, decimals, relay, new MemoryStore());
+        this(rpcUrl, chainId, decimals, relay, null);
     }
 
     TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay, Store store) {
@@ -41,7 +41,7 @@ public class TempoMethod implements Method {
         this.chainId = chainId;
         this.decimals = decimals;
         this.chargeIntent = relay == null
-            ? new TempoChargeIntent(rpcUrl, store)
+            ? new TempoChargeIntent(rpcUrl, store != null ? store : new MemoryStore())
             : new TempoRelayChargeIntent(rpcUrl, relay);
     }
 
@@ -97,8 +97,7 @@ public class TempoMethod implements Method {
         }
 
         public TempoMethod build() {
-            Store replayStore = store != null ? store : new MemoryStore();
-            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay, replayStore);
+            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay, store);
         }
     }
 

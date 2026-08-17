@@ -107,11 +107,20 @@ public class TempoChargeIntent implements Intent {
 
     private Receipt verifyTransaction(String rawTx, Map<String, Object> request) {
         String txHash = rpc.sendRawTransaction(rpcUrl, rawTx);
-        return awaitReceipt(txHash, request);
+        return claimOnce(awaitReceipt(txHash, request));
     }
 
     private Receipt verifyHash(String txHash, Map<String, Object> request) {
-        return awaitReceipt(txHash, request);
+        return claimOnce(awaitReceipt(txHash, request));
+    }
+
+    /** Records first use of the settled transaction, rejecting a hash that was already claimed. */
+    private Receipt claimOnce(Receipt receipt) {
+        String txHash = receipt.reference();
+        if (!store.tryClaim(REPLAY_KEY_PREFIX + txHash.toLowerCase(Locale.ROOT))) {
+            throw new VerificationFailedException("transaction hash already used: " + txHash);
+        }
+        return receipt;
     }
 
     private Receipt awaitReceipt(String txHash, Map<String, Object> request) {
@@ -125,10 +134,6 @@ public class TempoChargeIntent implements Intent {
                     throw new VerificationFailedException(
                         "transaction logs contain no Transfer matching the request currency, recipient, and amount"
                     );
-                }
-                String key = REPLAY_KEY_PREFIX + txHash.toLowerCase(Locale.ROOT);
-                if (!store.putIfAbsent(key, txHash)) {
-                    throw new VerificationFailedException("transaction hash already used: " + txHash);
                 }
                 return Receipt.success(txHash, "tempo");
             }

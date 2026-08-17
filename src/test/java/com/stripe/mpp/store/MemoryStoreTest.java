@@ -7,10 +7,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MemoryStoreTest {
 
     @Test
-    void putIfAbsentDoesNotReplaceAnExistingValue() {
+    void claimIsRecordedOnceOnly() {
         MemoryStore store = new MemoryStore();
 
-        assertThat(store.putIfAbsent("key", "first")).isTrue();
-        assertThat(store.putIfAbsent("key", "second")).isFalse();
+        assertThat(store.tryClaim("key")).isTrue();
+        assertThat(store.tryClaim("key")).isFalse();
     }
 }

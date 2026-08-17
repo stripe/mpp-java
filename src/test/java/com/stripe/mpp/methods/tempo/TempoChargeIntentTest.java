@@ -5,7 +5,20 @@ import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.VerificationFailedException;
 import org.junit.jupiter.api.Test;
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.generated.Uint256;
+import org.web3j.rlp.RlpEncoder;
+import org.web3j.rlp.RlpList;
+import org.web3j.rlp.RlpString;
+import org.web3j.rlp.RlpType;
+import org.web3j.utils.Numeric;
 
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -68,6 +81,7 @@ class TempoChargeIntentTest {
         private final String txHashOnSend;
         private final Map<String, Object> receipt;
         private final int nullReceiptsBeforeResult;
+        private int sendCalls = 0;
         private int receiptCalls = 0;
 
         StubRpc(String txHashOnSend, Map<String, Object> receipt, int nullReceiptsBeforeResult) {
@@ -76,7 +90,10 @@ class TempoChargeIntentTest {
             this.nullReceiptsBeforeResult = nullReceiptsBeforeResult;
         }
 
-        @Override String sendRawTransaction(String rpcUrl, String rawTx) { return txHashOnSend; }
+        @Override String sendRawTransaction(String rpcUrl, String rawTx) {
+            sendCalls++;
+            return txHashOnSend;
+        }
 
         @Override Map<String, Object> getTransactionReceipt(String rpcUrl, String txHash) {
             return receiptCalls++ < nullReceiptsBeforeResult ? null : receipt;
@@ -92,17 +109,18 @@ class TempoChargeIntentTest {
     @Test
     void pullPaymentBroadcastsAndReturnsReceipt() {
         StubRpc rpc = new StubRpc("0xdeadbeef", successReceipt(), 0);
-        Receipt receipt = intent(rpc).verify(txCredential("0xsignedtx"), REQUEST);
+        Receipt receipt = intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST);
 
         assertThat(receipt.status()).isEqualTo("success");
         assertThat(receipt.reference()).isEqualTo("0xdeadbeef");
         assertThat(receipt.method()).isEqualTo("tempo");
+        assertThat(rpc.sendCalls).isEqualTo(1);
     }
 
     @Test
     void pullPaymentWaitsForReceiptToMine() {
         StubRpc rpc = new StubRpc("0xdeadbeef", successReceipt(), 2);
-        Receipt receipt = intent(rpc).verify(txCredential("0xsignedtx"), REQUEST);
+        Receipt receipt = intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST);
 
         assertThat(receipt.reference()).isEqualTo("0xdeadbeef");
     }
@@ -111,7 +129,7 @@ class TempoChargeIntentTest {
     void revertedTransactionThrows() {
         StubRpc rpc = new StubRpc("0xbadtx", Map.of("status", "0x0"), 0);
 
-        assertThatThrownBy(() -> intent(rpc).verify(txCredential("0xsignedtx"), REQUEST))
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST))
             .isInstanceOf(VerificationFailedException.class)
             .hasMessageContaining("reverted");
     }
@@ -120,9 +138,61 @@ class TempoChargeIntentTest {
     void receiptTimeoutThrows() {
         StubRpc rpc = new StubRpc("0xtx", null, Integer.MAX_VALUE);
 
-        assertThatThrownBy(() -> intent(rpc).verify(txCredential("0xsignedtx"), REQUEST))
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST))
             .isInstanceOf(VerificationFailedException.class)
             .hasMessageContaining("timeout");
+    }
+
+    @Test
+    void transactionWithWrongRecipientIsRejectedBeforeBroadcast() {
+        String otherRecipient = "0x9999999999999999999999999999999999999999";
+        StubRpc rpc = new StubRpc("0xtx", successReceipt(), 0);
+
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(otherRecipient, AMOUNT_ATOMIC)), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("transaction does not contain a Transfer");
+        assertThat(rpc.sendCalls).isZero();
+    }
+
+    @Test
+    void transactionWithWrongAmountIsRejectedBeforeBroadcast() {
+        StubRpc rpc = new StubRpc("0xtx", successReceipt(), 0);
+
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC - 1)), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("transaction does not contain a Transfer");
+        assertThat(rpc.sendCalls).isZero();
+    }
+
+    @Test
+    void transactionWithWrongTokenIsRejectedBeforeBroadcast() {
+        String otherContract = "0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead";
+        StubRpc rpc = new StubRpc("0xtx", successReceipt(), 0);
+
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(otherContract, RECIPIENT, AMOUNT_ATOMIC)), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("transaction does not contain a Transfer");
+        assertThat(rpc.sendCalls).isZero();
+    }
+
+    @Test
+    void malformedTransactionIsRejectedBeforeBroadcast() {
+        StubRpc rpc = new StubRpc("0xtx", successReceipt(), 0);
+
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential("0xdeadbeef"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("invalid Tempo transaction type");
+        assertThat(rpc.sendCalls).isZero();
+    }
+
+    @Test
+    void transactionWithoutSignatureIsRejectedBeforeBroadcast() {
+        StubRpc rpc = new StubRpc("0xtx", successReceipt(), 0);
+
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC, false)), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("malformed Tempo transaction");
+        assertThat(rpc.sendCalls).isZero();
     }
 
     @Test
@@ -158,7 +228,7 @@ class TempoChargeIntentTest {
         String otherContract = "0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead";
         StubRpc rpc = new StubRpc("0xtx", receiptWithLog(otherContract, SENDER, RECIPIENT, AMOUNT_ATOMIC), 0);
 
-        assertThatThrownBy(() -> intent(rpc).verify(txCredential("0xsignedtx"), REQUEST))
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST))
             .isInstanceOf(VerificationFailedException.class)
             .hasMessageContaining("Transfer");
     }
@@ -168,7 +238,7 @@ class TempoChargeIntentTest {
         String otherRecipient = "0x9999999999999999999999999999999999999999";
         StubRpc rpc = new StubRpc("0xtx", receiptWithLog(TOKEN_CONTRACT, SENDER, otherRecipient, AMOUNT_ATOMIC), 0);
 
-        assertThatThrownBy(() -> intent(rpc).verify(txCredential("0xsignedtx"), REQUEST))
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST))
             .isInstanceOf(VerificationFailedException.class)
             .hasMessageContaining("Transfer");
     }
@@ -177,7 +247,7 @@ class TempoChargeIntentTest {
     void wrongAmountThrows() {
         StubRpc rpc = new StubRpc("0xtx", receiptWithLog(TOKEN_CONTRACT, SENDER, RECIPIENT, AMOUNT_ATOMIC - 1), 0);
 
-        assertThatThrownBy(() -> intent(rpc).verify(txCredential("0xsignedtx"), REQUEST))
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST))
             .isInstanceOf(VerificationFailedException.class)
             .hasMessageContaining("Transfer");
     }
@@ -186,14 +256,13 @@ class TempoChargeIntentTest {
     void wrongSenderThrows() {
         String otherSender = "0x8888888888888888888888888888888888888888";
         // log.from matches SENDER but receipt.from is otherSender — mismatch
-        StubRpc rpc = new StubRpc("0xtx", receiptWithLog(TOKEN_CONTRACT, SENDER, RECIPIENT, AMOUNT_ATOMIC), 0);
         Map<String, Object> baseReceipt = receiptWithLog(TOKEN_CONTRACT, SENDER, RECIPIENT, AMOUNT_ATOMIC);
         // Rebuild receipt with a different "from" field
         Map<String, Object> tampered = new java.util.HashMap<>(baseReceipt);
         tampered.put("from", otherSender);
         StubRpc rpc2 = new StubRpc("0xtx", tampered, 0);
 
-        assertThatThrownBy(() -> intent(rpc2).verify(txCredential("0xsignedtx"), REQUEST))
+        assertThatThrownBy(() -> intent(rpc2).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST))
             .isInstanceOf(VerificationFailedException.class)
             .hasMessageContaining("Transfer");
     }
@@ -203,7 +272,7 @@ class TempoChargeIntentTest {
         Map<String, Object> receipt = Map.of("status", "0x1", "from", SENDER, "logs", List.of());
         StubRpc rpc = new StubRpc("0xtx", receipt, 0);
 
-        assertThatThrownBy(() -> intent(rpc).verify(txCredential("0xsignedtx"), REQUEST))
+        assertThatThrownBy(() -> intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST))
             .isInstanceOf(VerificationFailedException.class)
             .hasMessageContaining("Transfer");
     }
@@ -227,7 +296,7 @@ class TempoChargeIntentTest {
         );
         StubRpc rpc = new StubRpc("0xtx", receipt, 0);
 
-        Receipt result = intent(rpc).verify(txCredential("0xsignedtx"), REQUEST);
+        Receipt result = intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST);
         assertThat(result.status()).isEqualTo("success");
     }
 
@@ -237,7 +306,66 @@ class TempoChargeIntentTest {
         Map<String, Object> receipt = receiptWithLog(TOKEN_CONTRACT.toUpperCase(), SENDER, RECIPIENT, AMOUNT_ATOMIC);
         StubRpc rpc = new StubRpc("0xtx", receipt, 0);
 
-        Receipt result = intent(rpc).verify(txCredential("0xsignedtx"), REQUEST);
+        Receipt result = intent(rpc).verify(txCredential(rawTransferTx(RECIPIENT, AMOUNT_ATOMIC)), REQUEST);
         assertThat(result.status()).isEqualTo("success");
+    }
+
+    private static String rawTransferTx(String recipient, long amount) {
+        return rawTransferTx(TOKEN_CONTRACT, recipient, amount, true);
+    }
+
+    private static String rawTransferTx(String tokenContract, String recipient, long amount) {
+        return rawTransferTx(tokenContract, recipient, amount, true);
+    }
+
+    private static String rawTransferTx(String recipient, long amount, boolean includeSignature) {
+        return rawTransferTx(TOKEN_CONTRACT, recipient, amount, includeSignature);
+    }
+
+    private static String rawTransferTx(
+        String tokenContract,
+        String recipient,
+        long amount,
+        boolean includeSignature
+    ) {
+        Function function = new Function(
+            "transfer",
+            Arrays.asList(new Address(recipient), new Uint256(BigInteger.valueOf(amount))),
+            Collections.emptyList()
+        );
+        byte[] callData = Numeric.hexStringToByteArray(FunctionEncoder.encode(function));
+        byte[] toAddress = Numeric.hexStringToByteArray(tokenContract);
+
+        List<RlpType> callItems = new ArrayList<>();
+        callItems.add(RlpString.create(toAddress));
+        callItems.add(RlpString.create(BigInteger.ZERO));
+        callItems.add(RlpString.create(callData));
+
+        List<RlpType> callsList = new ArrayList<>();
+        callsList.add(new RlpList(callItems));
+
+        List<RlpType> fields = new ArrayList<>();
+        fields.add(RlpString.create(BigInteger.valueOf(6342)));      // chain_id
+        fields.add(RlpString.create(BigInteger.ONE));                // max_priority_fee_per_gas
+        fields.add(RlpString.create(BigInteger.ONE));                // max_fee_per_gas
+        fields.add(RlpString.create(BigInteger.valueOf(5_000_000L)));// gas_limit
+        fields.add(new RlpList(callsList));                          // calls
+        fields.add(new RlpList(new ArrayList<>()));                  // access_list
+        fields.add(RlpString.create(BigInteger.ZERO));               // nonce_key
+        fields.add(RlpString.create(BigInteger.ONE));                // nonce
+        fields.add(RlpString.create(new byte[]{}));                  // valid_before
+        fields.add(RlpString.create(new byte[]{}));                  // valid_after
+        fields.add(RlpString.create(new byte[]{}));                  // fee_token
+        fields.add(RlpString.create(new byte[]{}));                  // fee_payer_signature
+        fields.add(new RlpList(new ArrayList<>()));                  // tempo_auth_list
+        if (includeSignature) {
+            fields.add(RlpString.create(new byte[65]));              // signature
+        }
+
+        byte[] rlpSigned = RlpEncoder.encode(new RlpList(fields));
+        byte[] signedTx = new byte[1 + rlpSigned.length];
+        signedTx[0] = (byte) 0x76;
+        System.arraycopy(rlpSigned, 0, signedTx, 1, rlpSigned.length);
+        return Numeric.toHexString(signedTx);
     }
 }

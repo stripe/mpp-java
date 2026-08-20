@@ -118,6 +118,20 @@ if (result instanceof VerifyResult.Challenged) {
 }
 ```
 
+### Replay protection
+
+The server "claims" on-chain transaction hashes in a `Store` when they are presented by the client so the same payment cannot be redeemed twice. The SDK ships with an in-memory `Store` by default which is suitable for development/single-process use, but will not work in serverless or multi-server environments.
+
+Redis or another atomic, durable store is recommended in production.
+
+```java
+TempoMethod tempo = TempoMethod.of()
+    .store(key -> redis.setnx(key, "1") == 1)  // shared across every instance
+    .build();
+```
+
+The Tempo Relay performs its own replay protection.
+
 ## Releasing
 
 1. Create a release branch and update `VERSION_NAME` in `gradle.properties` and the version references in this README.

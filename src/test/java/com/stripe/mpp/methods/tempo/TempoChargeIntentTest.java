@@ -4,6 +4,8 @@ import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
 import com.stripe.mpp.error.VerificationFailedException;
+import com.stripe.mpp.store.MemoryStore;
+import com.stripe.mpp.store.Store;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -87,6 +89,10 @@ class TempoChargeIntentTest {
         return new TempoChargeIntent(RPC_URL, 5, 0, rpc);
     }
 
+    static TempoChargeIntent intent(TempoRpc rpc, Store store) {
+        return new TempoChargeIntent(RPC_URL, 5, 0, rpc, store);
+    }
+
     // --- Existing transport / broadcast tests ---
 
     @Test
@@ -131,6 +137,51 @@ class TempoChargeIntentTest {
         Receipt receipt = intent(rpc).verify(hashCredential("0xpushedtx"), REQUEST);
 
         assertThat(receipt.reference()).isEqualTo("0xpushedtx");
+    }
+
+    @Test
+    void replayedHashIsRejectedAcrossIntentsSharingAStore() {
+        Store store = new MemoryStore();
+
+        Receipt first = intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xpushedtx"), REQUEST);
+        assertThat(first.reference()).isEqualTo("0xpushedtx");
+
+        assertThatThrownBy(() -> intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xpushedtx"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("already used");
+    }
+
+    @Test
+    void nonMatchingHashDoesNotConsumeReplayClaim() {
+        Store store = new MemoryStore();
+        Map<String, Object> nonMatchingReceipt = Map.of(
+            "status", "0x1", "from", SENDER, "logs", List.of()
+        );
+
+        assertThatThrownBy(() -> intent(new StubRpc(null, nonMatchingReceipt, 0), store)
+            .verify(hashCredential("0xunrelated"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("Transfer");
+
+        Receipt receipt = intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xunrelated"), REQUEST);
+        assertThat(receipt.reference()).isEqualTo("0xunrelated");
+    }
+
+    @Test
+    void pullHashCannotBeReplayedAsPush() {
+        Store store = new MemoryStore();
+
+        Receipt first = intent(new StubRpc("0xshared", successReceipt(), 0), store)
+            .verify(txCredential("0xsignedtx"), REQUEST);
+        assertThat(first.reference()).isEqualTo("0xshared");
+
+        assertThatThrownBy(() -> intent(new StubRpc(null, successReceipt(), 0), store)
+            .verify(hashCredential("0xshared"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("already used");
     }
 
     @Test

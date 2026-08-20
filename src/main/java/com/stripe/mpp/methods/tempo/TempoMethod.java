@@ -2,6 +2,8 @@ package com.stripe.mpp.methods.tempo;
 
 import com.stripe.mpp.server.Intent;
 import com.stripe.mpp.server.Method;
+import com.stripe.mpp.store.MemoryStore;
+import com.stripe.mpp.store.Store;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -27,15 +29,19 @@ public class TempoMethod implements Method {
     private final TempoChargeIntent chargeIntent;
 
     TempoMethod(String rpcUrl, int chainId) {
-        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null);
+        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null, null);
     }
 
     TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay) {
+        this(rpcUrl, chainId, decimals, relay, null);
+    }
+
+    TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay, Store store) {
         this.rpcUrl = rpcUrl;
         this.chainId = chainId;
         this.decimals = decimals;
         this.chargeIntent = relay == null
-            ? new TempoChargeIntent(rpcUrl, new TempoRpc())
+            ? new TempoChargeIntent(rpcUrl, store != null ? store : new MemoryStore())
             : new TempoRelayChargeIntent(rpcUrl, relay);
     }
 
@@ -53,6 +59,7 @@ public class TempoMethod implements Method {
         private String rpcUrl   = TempoDefaults.MAINNET_RPC;
         private int    chainId  = TempoDefaults.MAINNET_CHAIN_ID;
         private TempoRelay relay;
+        private Store store;
 
         private Builder() {}
 
@@ -79,8 +86,18 @@ public class TempoMethod implements Method {
             return this;
         }
 
+        /**
+         * Configures replay-protection storage for direct Tempo charge verification.
+         *
+         * <p>Use a durable store in production, shared across processes and instances.
+         */
+        public Builder store(Store store) {
+            this.store = Objects.requireNonNull(store, "store");
+            return this;
+        }
+
         public TempoMethod build() {
-            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay);
+            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay, store);
         }
     }
 

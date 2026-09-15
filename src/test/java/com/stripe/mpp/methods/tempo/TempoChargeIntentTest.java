@@ -7,6 +7,8 @@ import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.store.MemoryStore;
 import com.stripe.mpp.store.Store;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.HashMap;
 import java.util.List;
@@ -45,7 +47,11 @@ class TempoChargeIntentTest {
     static final String BOUND_MEMO = Attribution.encode(ECHO.realm(), ECHO.id());
 
     static Credential txCredential(String rawTx) {
-        return new Credential(ECHO, Map.of("type", "transaction", "signature", rawTx), null);
+        return txCredential(rawTx, null);
+    }
+
+    static Credential txCredential(String rawTx, String source) {
+        return new Credential(ECHO, Map.of("type", "transaction", "signature", rawTx), source);
     }
 
     static Credential hashCredential(String txHash) {
@@ -137,6 +143,40 @@ class TempoChargeIntentTest {
         assertThat(receipt.status()).isEqualTo("success");
         assertThat(receipt.reference()).isEqualTo("0xdeadbeef");
         assertThat(receipt.method()).isEqualTo("tempo");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {SENDER, RECIPIENT})
+    void transactionAcceptsSourceMatchingTransferSender(String receiptSender) {
+        Map<String, Object> receipt = new HashMap<>(successReceipt());
+        receipt.put("from", receiptSender);
+
+        Receipt result = intent(new StubRpc("0xdeadbeef", receipt, 0))
+            .verify(txCredential("0xsignedtx", didPkh(CHAIN_ID, SENDER)), REQUEST_WITH_CHAIN);
+
+        assertThat(result.reference()).isEqualTo("0xdeadbeef");
+    }
+
+    @Test
+    void transactionRejectsSourceDifferingFromTransferSender() {
+        assertThatThrownBy(() -> intent(new StubRpc("0xdeadbeef", successReceipt(), 0))
+            .verify(txCredential("0xsignedtx", didPkh(CHAIN_ID, RECIPIENT)), REQUEST_WITH_CHAIN))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("Transfer");
+    }
+
+    @Test
+    void transactionRejectsInvalidSourceBeforeBroadcast() {
+        StubRpc rpc = new StubRpc("0xdeadbeef", successReceipt(), 0) {
+            @Override String sendRawTransaction(String rpcUrl, String rawTx) {
+                throw new AssertionError("invalid source must not be broadcast");
+            }
+        };
+        for (String source : List.of("not-a-did", didPkh(1, SENDER))) {
+            assertThatThrownBy(() -> intent(rpc)
+                .verify(txCredential("0xsignedtx", source), REQUEST_WITH_CHAIN))
+                .isInstanceOf(VerificationFailedException.class);
+        }
     }
 
     @Test
@@ -433,41 +473,41 @@ class TempoChargeIntentTest {
     }
 
     @Test
-    void parseHashCredentialSourceAbsentIsNull() {
-        assertThat(TempoChargeIntent.parseHashCredentialSource(null, CHAIN_ID)).isNull();
-        assertThat(TempoChargeIntent.parseHashCredentialSource("", CHAIN_ID)).isNull();
+    void parseCredentialSourceAbsentIsNull() {
+        assertThat(TempoChargeIntent.parseCredentialSource(null, CHAIN_ID)).isNull();
+        assertThat(TempoChargeIntent.parseCredentialSource("", CHAIN_ID)).isNull();
     }
 
     @Test
-    void parseHashCredentialSourceValidReturnsAddress() {
-        assertThat(TempoChargeIntent.parseHashCredentialSource(didPkh(CHAIN_ID, SENDER), CHAIN_ID))
+    void parseCredentialSourceValidReturnsAddress() {
+        assertThat(TempoChargeIntent.parseCredentialSource(didPkh(CHAIN_ID, SENDER), CHAIN_ID))
             .isEqualTo(SENDER);
     }
 
     @Test
-    void parseHashCredentialSourceChainMismatchRejected() {
+    void parseCredentialSourceChainMismatchRejected() {
         assertThatThrownBy(() ->
-            TempoChargeIntent.parseHashCredentialSource(didPkh(1, SENDER), CHAIN_ID))
+            TempoChargeIntent.parseCredentialSource(didPkh(1, SENDER), CHAIN_ID))
             .isInstanceOf(VerificationFailedException.class)
-            .hasMessageContaining("Hash credential source is invalid");
+            .hasMessageContaining("Credential source is invalid");
     }
 
     @Test
-    void parseHashCredentialSourceAcceptsStringChainId() {
-        assertThat(TempoChargeIntent.parseHashCredentialSource(didPkh(CHAIN_ID, SENDER), String.valueOf(CHAIN_ID)))
+    void parseCredentialSourceAcceptsStringChainId() {
+        assertThat(TempoChargeIntent.parseCredentialSource(didPkh(CHAIN_ID, SENDER), String.valueOf(CHAIN_ID)))
             .isEqualTo(SENDER);
     }
 
     @Test
-    void parseHashCredentialSourceRejectsNonNumericChainId() {
+    void parseCredentialSourceRejectsNonNumericChainId() {
         assertThatThrownBy(() ->
-            TempoChargeIntent.parseHashCredentialSource(didPkh(CHAIN_ID, SENDER), "not-a-number"))
+            TempoChargeIntent.parseCredentialSource(didPkh(CHAIN_ID, SENDER), "not-a-number"))
             .isInstanceOf(VerificationFailedException.class)
-            .hasMessageContaining("Hash credential source is invalid");
+            .hasMessageContaining("Credential source is invalid");
     }
 
     @Test
-    void parseHashCredentialSourceRejectsMalformedVariants() {
+    void parseCredentialSourceRejectsMalformedVariants() {
         List<String> malformed = List.of(
             "not-a-valid-did",
             "did:pkh:solana:" + CHAIN_ID + ":" + SENDER,
@@ -477,10 +517,10 @@ class TempoChargeIntentTest {
             "did:pkh:eip155:" + CHAIN_ID + ":not-an-address"
         );
         for (String source : malformed) {
-            assertThatThrownBy(() -> TempoChargeIntent.parseHashCredentialSource(source, CHAIN_ID))
+            assertThatThrownBy(() -> TempoChargeIntent.parseCredentialSource(source, CHAIN_ID))
                 .as("case: %s", source)
                 .isInstanceOf(VerificationFailedException.class)
-                .hasMessageContaining("Hash credential source is invalid");
+                .hasMessageContaining("Credential source is invalid");
         }
     }
 
@@ -522,7 +562,7 @@ class TempoChargeIntentTest {
         assertThatThrownBy(() -> intent(new StubRpc(null, successReceipt(), 0), store)
             .verify(hashCredential("0xpushedtx", "not-a-did"), REQUEST_WITH_CHAIN))
             .isInstanceOf(VerificationFailedException.class)
-            .hasMessageContaining("Hash credential source is invalid");
+            .hasMessageContaining("Credential source is invalid");
 
         Receipt receipt = intent(new StubRpc(null, successReceipt(), 0), store)
             .verify(hashCredential("0xpushedtx"), REQUEST);
@@ -536,7 +576,7 @@ class TempoChargeIntentTest {
         assertThatThrownBy(() -> intent(new StubRpc(null, successReceipt(), 0), store)
             .verify(hashCredential("0xpushedtx", didPkh(1, SENDER)), REQUEST_WITH_CHAIN))
             .isInstanceOf(VerificationFailedException.class)
-            .hasMessageContaining("Hash credential source is invalid");
+            .hasMessageContaining("Credential source is invalid");
 
         Receipt receipt = intent(new StubRpc(null, successReceipt(), 0), store)
             .verify(hashCredential("0xpushedtx"), REQUEST);

@@ -120,14 +120,15 @@ public class TempoChargeIntent implements Intent {
     }
 
     private Receipt verifyTransaction(String rawTx, Map<String, Object> request, Credential credential) {
+        String sourceAddress = parseCredentialSource(credential.source(), chainIdFrom(request));
         String txHash = rpc.sendRawTransaction(rpcUrl, rawTx);
-        return claimOnce(awaitReceipt(txHash, request, credential, null));
+        return claimOnce(awaitReceipt(txHash, request, credential, sourceAddress));
     }
 
     private Receipt verifyHash(String txHash, Map<String, Object> request, Credential credential) {
         // Validate the declared payer before reserving the hash so a malformed
         // source cannot burn an otherwise valid payment.
-        String sourceAddress = parseHashCredentialSource(credential.source(), chainIdFrom(request));
+        String sourceAddress = parseCredentialSource(credential.source(), chainIdFrom(request));
         return claimOnce(awaitReceipt(txHash, request, credential, sourceAddress));
     }
 
@@ -265,16 +266,16 @@ public class TempoChargeIntent implements Intent {
     }
 
     /**
-     * Parses a hash-credential source. {@code null} or empty if absent; the
+     * Parses a credential source. {@code null} or empty if absent; the
      * address for a {@code did:pkh:eip155} DID matching {@code expectedChainId};
      * otherwise raises.
      */
-    static String parseHashCredentialSource(String source, Object expectedChainId) {
+    static String parseCredentialSource(String source, Object expectedChainId) {
         if (source == null || source.isEmpty()) return null;
         ParsedPkh parsed = parsePkhSource(source);
         Integer expected = parseChainIdValue(expectedChainId);
         if (parsed == null || (expected != null && parsed.chainId != expected)) {
-            throw new VerificationFailedException("Hash credential source is invalid");
+            throw new VerificationFailedException("Credential source is invalid");
         }
         return parsed.address;
     }
@@ -292,10 +293,10 @@ public class TempoChargeIntent implements Intent {
             try {
                 return Integer.valueOf((String) raw);
             } catch (NumberFormatException e) {
-                throw new VerificationFailedException("Hash credential source is invalid");
+                throw new VerificationFailedException("Credential source is invalid");
             }
         }
-        throw new VerificationFailedException("Hash credential source is invalid");
+        throw new VerificationFailedException("Credential source is invalid");
     }
 
     static ParsedPkh parsePkhSource(String source) {

@@ -24,6 +24,12 @@ implementation 'com.stripe:mpp-java:0.1.4'
 </dependency>
 ```
 
+## Breaking change: custom Tempo memos
+
+`TempoMethod.Builder.memo(...)` and `Method.memo()` have been removed. Remove these
+configurations and overrides; clients use automatic challenge-bound attribution
+memos. Direct Tempo verification rejects explicit memos in payment requests.
+
 ## Usage
 
 ### Testnet

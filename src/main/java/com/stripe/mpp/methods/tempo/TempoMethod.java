@@ -26,26 +26,20 @@ public class TempoMethod implements Method {
     private final String rpcUrl;
     private final int chainId;
     private final int decimals;
-    private final String memo;
     private final TempoChargeIntent chargeIntent;
 
     TempoMethod(String rpcUrl, int chainId) {
-        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null, null, null);
+        this(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, null, null);
     }
 
     TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay) {
-        this(rpcUrl, chainId, decimals, relay, null, null);
+        this(rpcUrl, chainId, decimals, relay, null);
     }
 
     TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay, Store store) {
-        this(rpcUrl, chainId, decimals, relay, store, null);
-    }
-
-    TempoMethod(String rpcUrl, int chainId, int decimals, TempoRelay relay, Store store, String memo) {
         this.rpcUrl = rpcUrl;
         this.chainId = chainId;
         this.decimals = decimals;
-        this.memo = memo;
         this.chargeIntent = relay == null
             ? new TempoChargeIntent(rpcUrl, store != null ? store : new MemoryStore())
             : new TempoRelayChargeIntent(rpcUrl, relay);
@@ -66,7 +60,6 @@ public class TempoMethod implements Method {
         private int    chainId  = TempoDefaults.MAINNET_CHAIN_ID;
         private TempoRelay relay;
         private Store store;
-        private String memo;
 
         private Builder() {}
 
@@ -103,25 +96,12 @@ public class TempoMethod implements Method {
             return this;
         }
 
-        /**
-         * Sets an explicit TIP-20 memo that payments must match.
-         *
-         * <p>Direct Tempo charge verification rejects explicit memos. Omit this
-         * setting so clients write an MPP attribution memo bound to the challenge.
-         */
-        public Builder memo(String memo) {
-            this.memo = Objects.requireNonNull(memo, "memo");
-            return this;
-        }
-
         public TempoMethod build() {
-            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay, store, memo);
+            return new TempoMethod(rpcUrl, chainId, TempoDefaults.DEFAULT_DECIMALS, relay, store);
         }
     }
 
     @Override public String name() { return "tempo"; }
-
-    @Override public String memo() { return memo; }
 
     public int chainId() { return chainId; }
     public String rpcUrl() { return rpcUrl; }
@@ -152,11 +132,7 @@ public class TempoMethod implements Method {
                 .toString();
             Map<String, Object> result = new LinkedHashMap<>(request);
             result.put("amount", atomic);
-            Map<String, Object> methodDetails = new LinkedHashMap<>();
-            methodDetails.put("chainId", chainId);
-            Object requestMemo = result.get("memo");
-            if (requestMemo != null) methodDetails.put("memo", requestMemo);
-            result.put("methodDetails", methodDetails);
+            result.put("methodDetails", Map.of("chainId", chainId));
             return result;
         } catch (Exception e) {
             throw new IllegalArgumentException("invalid amount: " + amount, e);

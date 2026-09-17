@@ -18,9 +18,6 @@ public interface Method {
      */
     List<Class<? extends Intent>> intents();
 
-    /** Optional: blockchain/network memo field. */
-    default String memo() { return null; }
-
     /** Optional: fee payer address. */
     default String feePayer() { return null; }
 

@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  * </ul>
  *
  * <p>A qualifying Transfer of the requested token, recipient and amount is not
- * enough. Unless the merchant set an explicit memo, the matched logs must include
+ * enough. The matched logs must include
  * a {@code TransferWithMemo} whose memo is bound to this challenge (MPP attribution
  * tag, server fingerprint of the challenge realm, and nonce
  * {@code keccak256(challengeId)[0..6]}). That is what stops a third party from
@@ -102,6 +102,9 @@ public class TempoChargeIntent implements Intent {
     @Override
     @SuppressWarnings("unchecked")
     public Receipt verify(Credential credential, Map<String, Object> request) {
+        if (memoFrom(request) != null) {
+            throw new VerificationFailedException("explicit memos are not supported for direct Tempo charge verification");
+        }
         if (!(credential.payload() instanceof Map<?, ?>)) {
             throw new VerificationFailedException("missing or invalid payload");
         }
@@ -160,9 +163,7 @@ public class TempoChargeIntent implements Intent {
                         "transaction logs contain no Transfer matching the request currency, recipient, and amount"
                     );
                 }
-                if (memoFrom(request) == null) {
-                    assertChallengeBoundMemo(matched, credential);
-                }
+                assertChallengeBoundMemo(matched, credential);
                 return Receipt.success(txHash, "tempo");
             }
             if (i < maxRetries - 1) {
@@ -179,7 +180,7 @@ public class TempoChargeIntent implements Intent {
 
     /**
      * Collects ERC-20 Transfer / TransferWithMemo logs that match the request's
-     * currency, recipient, amount, expected sender, and (when set) merchant memo.
+     * currency, recipient, amount, and expected sender.
      *
      * <p>The request amount must already be in atomic units (i.e. after
      * transformRequest has run).
@@ -193,7 +194,6 @@ public class TempoChargeIntent implements Intent {
         String currency  = (String) request.get("currency");
         String recipient = (String) request.get("recipient");
         String amountStr = (String) request.get("amount");
-        String expectedMemo = normalizeMemo(memoFrom(request));
 
         if (currency == null || recipient == null || amountStr == null) return List.of();
 
@@ -222,18 +222,12 @@ public class TempoChargeIntent implements Intent {
             boolean isTransferWithMemo = TRANSFER_WITH_MEMO_TOPIC.equalsIgnoreCase(topic0);
             if (!isTransfer && !isTransferWithMemo) continue;
             if (isTransferWithMemo && topics.size() < 4) continue;
-            if (expectedMemo != null && !isTransferWithMemo) continue;
 
             String fromAddress = "0x" + topics.get(1).substring(topics.get(1).length() - 40);
             String toAddress   = "0x" + topics.get(2).substring(topics.get(2).length() - 40);
 
             if (!toAddress.equalsIgnoreCase(recipient)) continue;
             if (expectedSender != null && !fromAddress.equalsIgnoreCase(expectedSender)) continue;
-
-            if (expectedMemo != null) {
-                String logMemo = normalizeMemo(topics.get(3));
-                if (logMemo == null || !logMemo.equals(expectedMemo)) continue;
-            }
 
             String data = (String) log.get("data");
             if (data == null || data.length() < 66) continue;
@@ -315,14 +309,6 @@ public class TempoChargeIntent implements Intent {
             if (nested instanceof String && !((String) nested).isEmpty()) return (String) nested;
         }
         return null;
-    }
-
-    static String normalizeMemo(String memo) {
-        if (memo == null) return null;
-        String value = memo.trim();
-        if (value.isEmpty()) return null;
-        if (!value.startsWith("0x") && !value.startsWith("0X")) value = "0x" + value;
-        return value.toLowerCase(Locale.ROOT);
     }
 
     static final class ParsedPkh {

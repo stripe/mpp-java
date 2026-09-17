@@ -121,7 +121,6 @@ public class MppHandler {
         request.put("amount",    resolvedAmount);
         request.put("currency",  resolvedCurrency);
         request.put("recipient", resolvedRecipient);
-        if (method.memo()     != null) request.put("memo",      method.memo());
         if (method.feePayer() != null) request.put("fee_payer", method.feePayer());
         if (method.chain()    != null) request.put("chain",     method.chain());
 
@@ -203,7 +202,6 @@ public class MppHandler {
         request.put("amount",    resolvedAmount);
         request.put("currency",  resolvedCurrency);
         request.put("recipient", resolvedRecipient);
-        if (method.memo()     != null) request.put("memo",      method.memo());
         if (method.feePayer() != null) request.put("fee_payer", method.feePayer());
         if (method.chain()    != null) request.put("chain",     method.chain());
 

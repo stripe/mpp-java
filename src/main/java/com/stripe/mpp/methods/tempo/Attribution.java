@@ -11,7 +11,7 @@ import java.util.Objects;
 /**
  * MPP attribution memo encoding for TIP-20 {@code transferWithMemo}.
  *
- * <p>When the merchant does not set an explicit memo, Tempo clients write this
+ * <p>Tempo clients write this
  * 32-byte value so a payment can be bound to a specific challenge. Layout:
  *
  * <pre>

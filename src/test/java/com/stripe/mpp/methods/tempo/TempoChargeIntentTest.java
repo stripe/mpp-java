@@ -8,6 +8,7 @@ import com.stripe.mpp.store.MemoryStore;
 import com.stripe.mpp.store.Store;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.HashMap;
@@ -113,6 +114,7 @@ class TempoChargeIntentTest {
         private final Map<String, Object> receipt;
         private final int nullReceiptsBeforeResult;
         private int receiptCalls = 0;
+        private int sendCalls = 0;
 
         StubRpc(String txHashOnSend, Map<String, Object> receipt, int nullReceiptsBeforeResult) {
             this.txHashOnSend = txHashOnSend;
@@ -120,7 +122,10 @@ class TempoChargeIntentTest {
             this.nullReceiptsBeforeResult = nullReceiptsBeforeResult;
         }
 
-        @Override String sendRawTransaction(String rpcUrl, String rawTx) { return txHashOnSend; }
+        @Override String sendRawTransaction(String rpcUrl, String rawTx) {
+            sendCalls++;
+            return txHashOnSend;
+        }
 
         @Override Map<String, Object> getTransactionReceipt(String rpcUrl, String txHash) {
             return receiptCalls++ < nullReceiptsBeforeResult ? null : receipt;
@@ -408,58 +413,35 @@ class TempoChargeIntentTest {
         assertThat(result.status()).isEqualTo("success");
     }
 
-    @Test
-    void explicitMemoMustMatchExactly() {
+    @ParameterizedTest
+    @CsvSource({
+        "hash, false, false", "hash, false, true",
+        "hash, true, false", "hash, true, true",
+        "transaction, false, false", "transaction, false, true",
+        "transaction, true, false", "transaction, true, true"
+    })
+    void explicitMemoIsRejectedBeforeRpc(String type, boolean nested, boolean declaredPayer) {
         String merchantMemo = "0x" + "ab".repeat(32);
         Map<String, Object> request = new HashMap<>(REQUEST);
-        request.put("memo", merchantMemo);
+        if (nested) {
+            request.put("methodDetails", Map.of("chainId", CHAIN_ID, "memo", merchantMemo));
+        } else {
+            request.put("memo", merchantMemo);
+        }
+        Credential credential = new Credential(ECHO,
+            "hash".equals(type) ? Map.of("type", type, "hash", "0xstolen")
+                : Map.of("type", type, "signature", "0xsignedtx"),
+            declaredPayer ? didPkh(CHAIN_ID, SENDER) : null);
+        StubRpc rpc = new StubRpc("0xstolen",
+            receiptWithMemoLog(TOKEN_CONTRACT, SENDER, RECIPIENT, AMOUNT_ATOMIC, merchantMemo), 0);
+        Store store = new MemoryStore();
 
-        Receipt result = intent(new StubRpc(null,
-            receiptWithMemoLog(TOKEN_CONTRACT, SENDER, RECIPIENT, AMOUNT_ATOMIC, merchantMemo), 0))
-            .verify(hashCredential("0xpushedtx"), request);
-        assertThat(result.status()).isEqualTo("success");
-    }
-
-    @Test
-    void explicitMemoMismatchIsRejected() {
-        String merchantMemo = "0x" + "ab".repeat(32);
-        String otherMemo = "0x" + "cd".repeat(32);
-        Map<String, Object> request = new HashMap<>(REQUEST);
-        request.put("memo", merchantMemo);
-
-        assertThatThrownBy(() -> intent(new StubRpc(null,
-            receiptWithMemoLog(TOKEN_CONTRACT, SENDER, RECIPIENT, AMOUNT_ATOMIC, otherMemo), 0))
-            .verify(hashCredential("0xpushedtx"), request))
+        assertThatThrownBy(() -> intent(rpc, store).verify(credential, request))
             .isInstanceOf(VerificationFailedException.class)
-            .hasMessageContaining("Transfer");
-    }
-
-    @Test
-    void explicitMemoDoesNotRequireChallengeBinding() {
-        String merchantMemo = "0x" + "ab".repeat(32);
-        Map<String, Object> request = new HashMap<>(REQUEST);
-        request.put("memo", merchantMemo);
-
-        Receipt result = intent(new StubRpc(null,
-            receiptWithMemoLog(TOKEN_CONTRACT, SENDER, RECIPIENT, AMOUNT_ATOMIC, merchantMemo), 0))
-            .verify(hashCredential("0xpushedtx"), request);
-        assertThat(result.status()).isEqualTo("success");
-    }
-
-    @Test
-    void explicitMemoInMethodDetailsIsHonored() {
-        String merchantMemo = "0x" + "ab".repeat(32);
-        Map<String, Object> request = Map.of(
-            "amount", String.valueOf(AMOUNT_ATOMIC),
-            "currency", TOKEN_CONTRACT,
-            "recipient", RECIPIENT,
-            "methodDetails", Map.of("chainId", CHAIN_ID, "memo", merchantMemo)
-        );
-
-        Receipt result = intent(new StubRpc(null,
-            receiptWithMemoLog(TOKEN_CONTRACT, SENDER, RECIPIENT, AMOUNT_ATOMIC, merchantMemo), 0))
-            .verify(hashCredential("0xpushedtx"), request);
-        assertThat(result.status()).isEqualTo("success");
+            .hasMessageContaining("explicit memos are not supported");
+        assertThat(rpc.sendCalls).isZero();
+        assertThat(rpc.receiptCalls).isZero();
+        assertThat(store.tryClaim("tempo:hash:0xstolen")).isTrue();
     }
 
     @Test

@@ -29,6 +29,11 @@ public final class Verify {
     /**
      * Verify the Authorization header credential or issue a new challenge.
      *
+     * <p>Any {@link RuntimeException} thrown by {@code intent.verify} — a typed
+     * {@link com.stripe.mpp.error.PaymentException} or otherwise — results in a fresh
+     * challenge rather than propagating to the caller, matching canonical behavior: a
+     * failed verification attempt should be retryable, not a thrown exception.
+     *
      * @return {@link VerifyResult.Challenged} if payment is required,
      *         {@link VerifyResult.Verified} if the credential was accepted.
      */
@@ -63,7 +68,18 @@ public final class Verify {
             return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
         }
 
-        Receipt receipt = intent.verify(credential, request);
+        Receipt receipt;
+        try {
+            receipt = intent.verify(credential, request);
+        } catch (RuntimeException e) {
+            // Method verification can fail for reasons the client can retry: insufficient
+            // funds, an action-required response from the processor, a reverted or
+            // mismatched on-chain transaction, and so on. Canonical mppx catches broadly here
+            // too (not just its own typed payment errors) so that any verification failure —
+            // expected or not — degrades to a fresh challenge rather than an unhandled
+            // exception escaping to the caller.
+            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+        }
         return new VerifyResult.Verified(credential, receipt);
     }
 

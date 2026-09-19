@@ -2,6 +2,7 @@ package com.stripe.mpp;
 
 import com.stripe.mpp.error.InvalidChallengeException;
 import com.stripe.mpp.error.PaymentException;
+import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.server.*;
 import org.junit.jupiter.api.Test;
 
@@ -26,6 +27,20 @@ class IntegrationTest {
         public Receipt verify(Credential credential, Map<String, Object> request) throws PaymentException {
             // In a real implementation this would verify the payment on-chain or via Stripe.
             return Receipt.success("tx-ref-12345", "test");
+        }
+    }
+
+    /** A ChargeIntent whose verify() always fails, for testing verifyOrChallenge's failure path. */
+    static class ThrowingIntent extends ChargeIntent {
+        private final RuntimeException toThrow;
+
+        ThrowingIntent(RuntimeException toThrow) {
+            this.toThrow = toThrow;
+        }
+
+        @Override
+        public Receipt verify(Credential credential, Map<String, Object> request) {
+            throw toThrow;
         }
     }
 
@@ -143,6 +158,53 @@ class IntegrationTest {
         VerifyResult.Verified verified = (VerifyResult.Verified) step2;
         assertThat(verified.receipt().status()).isEqualTo("success");
         assertThat(verified.receipt().reference()).isEqualTo("tx-ref-12345");
+    }
+
+    // --- Regression coverage: AGR-2026-055 ---
+    // intent.verify() throwing used to propagate past verifyOrChallenge as an unhandled
+    // exception instead of producing a retryable challenge, matching canonical mppx's
+    // catch-and-reissue-challenge behavior around method verification.
+
+    @Test
+    void typedPaymentExceptionFromVerifyReturnsChallengedNotThrown() {
+        String realm = "api.example.com";
+        MppHandler server = Mpp.create(new TestMethod(), realm, "super-secret");
+        Intent intent = new ThrowingIntent(new VerificationFailedException("insufficient funds"));
+
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        )).challenge();
+        Credential credential = new Credential(challenge.toEcho(), Map.of("signature", "0xSigData"), null);
+
+        VerifyResult result = server.charge(
+            credential.toAuthorization(), intent, "10.000000", "USDC", "0xRecipient"
+        );
+
+        assertThat(result).isInstanceOf(VerifyResult.Challenged.class);
+        Challenge fresh = ((VerifyResult.Challenged) result).challenge();
+        assertThat(fresh.realm()).isEqualTo(realm);
+        assertThat(fresh.method()).isEqualTo("test");
+        assertThat(fresh.intent()).isEqualTo("charge");
+    }
+
+    @Test
+    void unexpectedRuntimeExceptionFromVerifyReturnsChallengedNotThrown() {
+        // Deliberately not a PaymentException — an "unexpected" internal error during method
+        // verification should still degrade to a fresh challenge rather than escape uncaught,
+        // matching canonical mppx's broad catch around method verification.
+        MppHandler server = Mpp.create(new TestMethod(), "api.example.com", "super-secret");
+        Intent intent = new ThrowingIntent(new IllegalStateException("boom"));
+
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        )).challenge();
+        Credential credential = new Credential(challenge.toEcho(), Map.of("signature", "0xSigData"), null);
+
+        VerifyResult result = server.charge(
+            credential.toAuthorization(), intent, "10.000000", "USDC", "0xRecipient"
+        );
+
+        assertThat(result).isInstanceOf(VerifyResult.Challenged.class);
     }
 
     @Test

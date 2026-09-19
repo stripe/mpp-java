@@ -172,6 +172,7 @@ final class Parsing {
 
         String status = str(map, "status");
         if (status == null) throw new ParseException("Missing status");
+        if (!"success".equals(status)) throw new ParseException("Invalid receipt status: " + status);
 
         String timestampStr = str(map, "timestamp");
         if (timestampStr == null) throw new ParseException("Missing timestamp");

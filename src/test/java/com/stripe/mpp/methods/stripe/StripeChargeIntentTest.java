@@ -98,6 +98,21 @@ class StripeChargeIntentTest {
     }
 
     @Test
+    void idempotentReplayedSucceededChargeIsRejected() {
+        // Regression test for AGR-2026-035: Stripe reporting a succeeded
+        // PaymentIntent whose creation was an idempotent replay (i.e. the
+        // charge already happened for an earlier challenge/SPT pair) must
+        // not be accepted as a fresh successful verification.
+        StubStripeApi api = new StubStripeApi(
+            new StripeApi.Result("pi_replay123", "succeeded", true));
+
+        assertThatThrownBy(() -> intent(api).verify(credential("spt_xxx"), REQUEST))
+            .isInstanceOf(VerificationFailedException.class)
+            .hasMessageContaining("pi_replay123")
+            .hasMessageContaining("replay");
+    }
+
+    @Test
     void externalIdIncludedInReceipt() {
         StubStripeApi api = new StubStripeApi(new StripeApi.Result("pi_abc123", "succeeded"));
         Receipt receipt = intent(api).verify(

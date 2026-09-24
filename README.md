@@ -86,7 +86,22 @@ TempoMethod tempo = TempoMethod.of()
 
 `MppHandler.charge(...)` validates immediately before broadcast. Applications that expose those
 phases separately can use `validateCredential(...)` for a non-mutating pre-check and
-`broadcastCredential(...)` when accepting the payment. The latter always re-validates first.
+`broadcastCredential(...)` when accepting the payment. Pass the same request body to both calls;
+the latter always re-validates the credential and body digest before broadcasting.
+
+For requests with a body, pass the exact body bytes (or the exact string received) through
+`ChargeRequest.body(...)`. The SDK includes its RFC 9530 SHA-256 digest in the challenge and
+rejects a credential if the retried body differs. Omitting the body indicates that the request
+has no body; body presence and digest presence are checked fail-closed.
+
+```java
+byte[] requestBody = request.getInputStream().readAllBytes();
+ChargeRequest charge = ChargeRequest
+    .of(tempo.chargeIntent(), "0.50", currency, "0xYourWalletAddress")
+    .description("Paid endpoint")
+    .body(requestBody);
+VerifyResult result = mppHandler.charge(request.getHeader("Authorization"), charge);
+```
 
 See the runnable [Tempo relay example](examples/tempo-relay).
 

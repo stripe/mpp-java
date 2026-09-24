@@ -90,19 +90,34 @@ public final class Challenge {
         String intent,
         Map<String, Object> request,
         String expires,
+        String digest,
         String description,
         Map<String, Object> meta
     ) {
         String requestB64 = ChallengeId.b64urlEncode(Json.compact(request));
         String opaqueRaw = ChallengeId.encodeOpaque(meta);
-        String id = ChallengeId.generateWithOpaque(secretKey, realm, method, intent, request, expires, null, opaqueRaw);
-        return new Challenge(id, method, intent, request, realm, requestB64, null, expires, description, meta, opaqueRaw);
+        String id = ChallengeId.generateWithOpaque(secretKey, realm, method, intent, request, expires, digest, opaqueRaw);
+        return new Challenge(id, method, intent, request, realm, requestB64, digest, expires, description, meta, opaqueRaw);
+    }
+
+    /** Create a challenge for a request without a body. */
+    public static Challenge create(
+        String secretKey,
+        String realm,
+        String method,
+        String intent,
+        Map<String, Object> request,
+        String expires,
+        String description,
+        Map<String, Object> meta
+    ) {
+        return create(secretKey, realm, method, intent, request, expires, null, description, meta);
     }
 
     public static Challenge create(
         String secretKey, String realm, String method, String intent, Map<String, Object> request
     ) {
-        return create(secretKey, realm, method, intent, request, null, null, null);
+        return create(secretKey, realm, method, intent, request, null, null, null, null);
     }
 
     /**

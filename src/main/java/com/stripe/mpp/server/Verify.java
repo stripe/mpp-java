@@ -1,5 +1,6 @@
 package com.stripe.mpp.server;
 
+import com.stripe.mpp.BodyDigest;
 import com.stripe.mpp.Challenge;
 import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.ChallengeId;
@@ -43,11 +44,35 @@ public final class Verify {
         Map<String, Object> meta,
         String expires
     ) {
+        return verifyOrChallenge(
+            authorization, intent, request, realm, secretKey, methodName,
+            description, meta, expires, null
+        );
+    }
+
+    /**
+     * Verify the Authorization header credential or issue a new challenge, binding the
+     * credential to {@code body} when one is present.
+     */
+    public static VerifyResult verifyOrChallenge(
+        String authorization,
+        Intent intent,
+        Map<String, Object> request,
+        String realm,
+        String secretKey,
+        String methodName,
+        String description,
+        Map<String, Object> meta,
+        String expires,
+        Object body
+    ) {
         Credential credential;
         try {
             credential = parseCredential(authorization);
         } catch (MalformedCredentialException e) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+            return new VerifyResult.Challenged(createChallenge(
+                methodName, intent, request, realm, secretKey, description, meta, expires, body
+            ));
         }
 
         try {
@@ -59,8 +84,11 @@ public final class Verify {
             if (!Objects.equals(credential.challenge().opaqueRaw(), ChallengeId.encodeOpaque(meta))) {
                 throw new InvalidChallengeException(credential.challenge().id(), "opaque data does not match");
             }
+            assertBodyDigest(credential, body);
         } catch (ParseException | InvalidChallengeException | PaymentExpiredException e) {
-            return new VerifyResult.Challenged(createChallenge(methodName, intent, request, realm, secretKey, description, meta, expires));
+            return new VerifyResult.Challenged(createChallenge(
+                methodName, intent, request, realm, secretKey, description, meta, expires, body
+            ));
         }
 
         Receipt receipt = intent.verify(credential, request);
@@ -135,16 +163,43 @@ public final class Verify {
         return echoRequest;
     }
 
+    /** Fail closed unless the current body and the echoed digest are both absent or match. */
+    static void assertBodyDigest(Credential credential, Object body) {
+        String digest = credential.challenge().digest();
+        boolean matches = body == null
+            ? digest == null
+            : digest != null && BodyDigest.verify(digest, body);
+        if (!matches) {
+            throw new InvalidChallengeException(
+                credential.challenge().id(), "body digest does not match"
+            );
+        }
+    }
+
     static Challenge createChallenge(
         String methodName, Intent intent, Map<String, Object> request,
         String realm, String secretKey, String description,
         Map<String, Object> meta, String expires
     ) {
+        return createChallenge(
+            methodName, intent, request, realm, secretKey, description, meta, expires, null
+        );
+    }
+
+    static Challenge createChallenge(
+        String methodName, Intent intent, Map<String, Object> request,
+        String realm, String secretKey, String description,
+        Map<String, Object> meta, String expires, Object body
+    ) {
         String resolvedExpires = expires;
         if (resolvedExpires == null) {
             resolvedExpires = Instant.now().plusSeconds(DEFAULT_EXPIRES_MINUTES * 60L).toString();
         }
-        return Challenge.create(secretKey, realm, methodName, intent.name(), request, resolvedExpires, description, meta);
+        String digest = body == null ? null : BodyDigest.compute(body);
+        return Challenge.create(
+            secretKey, realm, methodName, intent.name(), request,
+            resolvedExpires, digest, description, meta
+        );
     }
 
     /**

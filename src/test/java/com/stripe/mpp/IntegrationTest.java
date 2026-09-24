@@ -146,6 +146,155 @@ class IntegrationTest {
     }
 
     @Test
+    void credentialIsBoundToTheRequestBody() {
+        String quotedBody = "{\"document\":\"public\"}";
+        String submittedBody = "{\"document\":\"private\"}";
+        MppHandler server = Mpp.create(
+            new VerifiableMethod(), "api.example.com", "super-secret"
+        );
+        SplitChargeIntent intent = new SplitChargeIntent();
+        ChargeRequest request = ChargeRequest.of(
+            intent, "10.000000", "USDC", "0xRecipient"
+        ).body(quotedBody);
+
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(null, request)).challenge();
+        assertThat(challenge.digest()).isNotNull();
+        assertThat(BodyDigest.verify(challenge.digest(), quotedBody)).isTrue();
+
+        String authorization = new Credential(
+            challenge.toEcho(), Map.of("sig", "x"), null
+        ).toAuthorization();
+        VerifyResult mismatch = server.charge(
+            authorization, ChargeRequest.of(
+                intent, "10.000000", "USDC", "0xRecipient"
+            ).body(submittedBody)
+        );
+
+        assertThat(mismatch).isInstanceOf(VerifyResult.Challenged.class);
+        Challenge retry = ((VerifyResult.Challenged) mismatch).challenge();
+        assertThat(BodyDigest.verify(retry.digest(), submittedBody)).isTrue();
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
+    }
+
+    @Test
+    void matchingRequestBodyIsVerified() {
+        String body = "{\"document\":\"public\"}";
+        MppHandler server = Mpp.create(
+            new VerifiableMethod(), "api.example.com", "super-secret"
+        );
+        SplitChargeIntent intent = new SplitChargeIntent();
+        ChargeRequest request = ChargeRequest.of(
+            intent, "10.000000", "USDC", "0xRecipient"
+        ).body(body);
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(null, request)).challenge();
+        String authorization = new Credential(
+            challenge.toEcho(), Map.of("sig", "x"), null
+        ).toAuthorization();
+
+        VerifyResult result = server.charge(authorization, request);
+
+        assertThat(result).isInstanceOf(VerifyResult.Verified.class);
+        assertThat(intent.validations).isEqualTo(1);
+        assertThat(intent.broadcasts).isEqualTo(1);
+    }
+
+    @Test
+    void bodyAndDigestMustEitherBothBePresentOrBothBeAbsent() {
+        String body = "{\"document\":\"public\"}";
+        MppHandler server = Mpp.create(
+            new VerifiableMethod(), "api.example.com", "super-secret"
+        );
+        SplitChargeIntent intent = new SplitChargeIntent();
+
+        Challenge withoutDigest = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient"
+        )).challenge();
+        String unboundAuthorization = new Credential(
+            withoutDigest.toEcho(), Map.of("sig", "x"), null
+        ).toAuthorization();
+        VerifyResult bodyWithoutDigest = server.charge(
+            unboundAuthorization, intent, "10.000000", "USDC", "0xRecipient", body
+        );
+
+        Challenge withDigest = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient", body
+        )).challenge();
+        String boundAuthorization = new Credential(
+            withDigest.toEcho(), Map.of("sig", "x"), null
+        ).toAuthorization();
+        VerifyResult digestWithoutBody = server.charge(
+            boundAuthorization, intent, "10.000000", "USDC", "0xRecipient"
+        );
+
+        assertThat(bodyWithoutDigest).isInstanceOf(VerifyResult.Challenged.class);
+        assertThat(digestWithoutBody).isInstanceOf(VerifyResult.Challenged.class);
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
+    }
+
+    @Test
+    void standaloneLifecycleVerifiesRequestBodyBinding() {
+        String body = "{\"document\":\"public\"}";
+        MppHandler server = Mpp.create(
+            new VerifiableMethod(), "api.example.com", "super-secret"
+        );
+        SplitChargeIntent intent = new SplitChargeIntent();
+        ChargeRequest request = ChargeRequest.of(
+            intent, "10.000000", "USDC", "0xRecipient"
+        ).body(body);
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(null, request)).challenge();
+        Credential credential = new Credential(
+            challenge.toEcho(), Map.of("sig", "x"), null
+        );
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> server.validateCredential(credential, intent, "different")
+        ).isInstanceOf(InvalidChallengeException.class)
+            .hasMessageContaining("body digest");
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> server.broadcastCredential(credential, intent, "different")
+        ).isInstanceOf(InvalidChallengeException.class)
+            .hasMessageContaining("body digest");
+
+        ValidationResult validation = server.validateCredential(credential, intent, body);
+        Receipt receipt = server.broadcastCredential(credential, intent, body);
+        assertThat(validation.method()).isEqualTo("test");
+        assertThat(receipt.reference()).isEqualTo("split-ref");
+        assertThat(intent.validations).isEqualTo(2);
+        assertThat(intent.broadcasts).isEqualTo(1);
+    }
+
+    @Test
+    void composedHandlerBindsAllChallengesToTheRequestBody() {
+        String quotedBody = "{\"document\":\"public\"}";
+        String submittedBody = "{\"document\":\"private\"}";
+        MppHandler server = Mpp.create(
+            new VerifiableMethod(), "api.example.com", "super-secret"
+        );
+        SplitChargeIntent intent = new SplitChargeIntent();
+        ComposedHandler composed = Mpp.compose(
+            server.chargeDescriptor(ChargeRequest.of(
+                intent, "10.000000", "USDC", "0xRecipient"
+            ).body(quotedBody))
+        );
+
+        Challenge challenge = ((VerifyResult.Challenged) composed.charge(null)).challenge();
+        assertThat(BodyDigest.verify(challenge.digest(), quotedBody)).isTrue();
+        String authorization = new Credential(
+            challenge.toEcho(), Map.of("sig", "x"), null
+        ).toAuthorization();
+
+        VerifyResult result = composed.charge(authorization, submittedBody);
+
+        assertThat(result).isInstanceOf(VerifyResult.Challenged.class);
+        Challenge retry = ((VerifyResult.Challenged) result).challenge();
+        assertThat(BodyDigest.verify(retry.digest(), submittedBody)).isTrue();
+        assertThat(intent.validations).isZero();
+        assertThat(intent.broadcasts).isZero();
+    }
+
+    @Test
     void standaloneLifecycleSeparatesValidationAndBroadcast() {
         MppHandler server = Mpp.create(new VerifiableMethod(), "api.example.com", "super-secret");
         SplitChargeIntent intent = new SplitChargeIntent();

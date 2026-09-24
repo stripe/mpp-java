@@ -23,6 +23,7 @@ public final class ChargeRequest {
     private String description;
     private Map<String, Object> meta;
     private String expires;
+    private Object body;
 
     private ChargeRequest(Intent intent, String amount, String currency, String recipient) {
         this.intent    = intent;
@@ -61,6 +62,12 @@ public final class ChargeRequest {
         return this;
     }
 
+    /** Request body to cryptographically bind to the payment credential. */
+    public ChargeRequest body(Object body) {
+        this.body = body;
+        return this;
+    }
+
     public Intent intent()      { return intent; }
     public String amount()      { return amount; }
     public String currency()    { return currency; }
@@ -68,4 +75,5 @@ public final class ChargeRequest {
     public String description() { return description; }
     public Map<String, Object> meta()    { return meta; }
     public String expires()     { return expires; }
+    public Object body()        { return body; }
 }

@@ -45,6 +45,15 @@ public final class ComposedHandler {
      * If verification fails or no credential is present, fresh challenges are issued for every method.
      */
     public VerifyResult charge(String authorization) {
+        return charge(authorization, null, false);
+    }
+
+    /** Verify or challenge all composed methods with binding to the current request body. */
+    public VerifyResult charge(String authorization, Object body) {
+        return charge(authorization, body, true);
+    }
+
+    private VerifyResult charge(String authorization, Object body, boolean bodyOverride) {
         if (authorization != null) {
             String paymentScheme = Verify.extractPaymentScheme(authorization);
             if (paymentScheme != null) {
@@ -55,7 +64,8 @@ public final class ComposedHandler {
                         if (d.handler().method().name().equals(credMethod)) {
                             VerifyResult result = d.handler().charge(
                                 authorization, d.intent(), d.amount(), d.currency(),
-                                d.recipient(), d.description(), d.meta(), d.expires()
+                                d.recipient(), d.description(), d.meta(), d.expires(),
+                                bodyOverride ? body : d.body()
                             );
                             if (result instanceof VerifyResult.Verified) {
                                 return result;
@@ -69,16 +79,16 @@ public final class ComposedHandler {
             }
         }
 
-        return new VerifyResult.Challenged(buildChallenges());
+        return new VerifyResult.Challenged(buildChallenges(body, bodyOverride));
     }
 
-    private List<Challenge> buildChallenges() {
+    private List<Challenge> buildChallenges(Object body, boolean bodyOverride) {
         List<Challenge> challenges = new ArrayList<>(descriptors.size());
         for (ChargeDescriptor d : descriptors) {
             challenges.add(Verify.createChallenge(
                 d.handler().method().name(), d.intent(), d.handler().buildRequest(d),
                 d.handler().realm(), d.handler().secretKey(),
-                d.description(), d.meta(), d.expires()
+                d.description(), d.meta(), d.expires(), bodyOverride ? body : d.body()
             ));
         }
         return challenges;

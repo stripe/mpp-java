@@ -63,12 +63,22 @@ public class MppHandler {
      * before the intent's non-mutating validation hook runs.
      */
     public ValidationResult validateCredential(String authorization, Intent intent) {
-        return validateCredential(Verify.parseCredential(authorization), intent);
+        return validateCredential(authorization, intent, null);
+    }
+
+    /** Validate a credential and its binding to the current request body. */
+    public ValidationResult validateCredential(String authorization, Intent intent, Object body) {
+        return validateCredential(Verify.parseCredential(authorization), intent, body);
     }
 
     /** Validate a parsed credential without broadcasting or consuming it. */
     public ValidationResult validateCredential(Credential credential, Intent intent) {
-        Map<String, Object> request = prepareCredential(credential, intent);
+        return validateCredential(credential, intent, null);
+    }
+
+    /** Validate a parsed credential and its binding to the current request body. */
+    public ValidationResult validateCredential(Credential credential, Intent intent, Object body) {
+        Map<String, Object> request = prepareCredential(credential, intent, body);
         return intent.validate(credential, request);
     }
 
@@ -76,12 +86,22 @@ public class MppHandler {
      * Re-validate and perform the terminal payment operation for a credential.
      */
     public Receipt broadcastCredential(String authorization, Intent intent) {
-        return broadcastCredential(Verify.parseCredential(authorization), intent);
+        return broadcastCredential(authorization, intent, null);
+    }
+
+    /** Re-validate the credential and body before performing the terminal payment operation. */
+    public Receipt broadcastCredential(String authorization, Intent intent, Object body) {
+        return broadcastCredential(Verify.parseCredential(authorization), intent, body);
     }
 
     /** Re-validate and perform the terminal payment operation for a parsed credential. */
     public Receipt broadcastCredential(Credential credential, Intent intent) {
-        Map<String, Object> request = prepareCredential(credential, intent);
+        return broadcastCredential(credential, intent, null);
+    }
+
+    /** Re-validate a parsed credential and body before the terminal payment operation. */
+    public Receipt broadcastCredential(Credential credential, Intent intent, Object body) {
+        Map<String, Object> request = prepareCredential(credential, intent, body);
         return intent.verify(credential, request);
     }
 
@@ -107,6 +127,26 @@ public class MppHandler {
         Map<String, Object> meta,
         String expires
     ) {
+        return charge(
+            authorization, intent, amount, currency, recipient,
+            description, meta, expires, null
+        );
+    }
+
+    /**
+     * Verify a payment credential or issue a challenge bound to the current request body.
+     */
+    public VerifyResult charge(
+        String authorization,
+        Intent intent,
+        String amount,
+        String currency,
+        String recipient,
+        String description,
+        Map<String, Object> meta,
+        String expires,
+        Object body
+    ) {
         requireSupported(intent);
 
         String resolvedCurrency  = currency  != null ? currency  : (String) defaults.get("currency");
@@ -128,13 +168,23 @@ public class MppHandler {
 
         return Verify.verifyOrChallenge(
             authorization, intent, request, realm, secretKey,
-            method.name(), description, meta, expires
+            method.name(), description, meta, expires, body
         );
     }
 
     /** Convenience overload with required fields only. */
     public VerifyResult charge(String authorization, Intent intent, String amount, String currency, String recipient) {
         return charge(authorization, intent, amount, currency, recipient, null, null, null);
+    }
+
+    /** Convenience overload with required fields and a request body. */
+    public VerifyResult charge(
+        String authorization, Intent intent, String amount, String currency,
+        String recipient, Object body
+    ) {
+        return charge(
+            authorization, intent, amount, currency, recipient, null, null, null, body
+        );
     }
 
     /** Convenience overload using all defaults. */
@@ -145,7 +195,7 @@ public class MppHandler {
     /** Overload accepting a {@link ChargeRequest} — avoids trailing nulls for optional fields. */
     public VerifyResult charge(String authorization, ChargeRequest req) {
         return charge(authorization, req.intent(), req.amount(), req.currency(),
-                      req.recipient(), req.description(), req.meta(), req.expires());
+                      req.recipient(), req.description(), req.meta(), req.expires(), req.body());
     }
 
     /**
@@ -157,7 +207,7 @@ public class MppHandler {
         Map<String, Object> request = buildRequest(chargeDescriptor(req));
         return Verify.createChallenge(
             method.name(), req.intent(), request, realm, secretKey,
-            req.description(), req.meta(), req.expires()
+            req.description(), req.meta(), req.expires(), req.body()
         );
     }
 
@@ -174,7 +224,25 @@ public class MppHandler {
         Map<String, Object> meta,
         String expires
     ) {
-        return new ChargeDescriptor(this, intent, amount, currency, recipient, description, meta, expires);
+        return chargeDescriptor(
+            intent, amount, currency, recipient, description, meta, expires, null
+        );
+    }
+
+    /** Create a composed charge slot with a request body to bind. */
+    public ChargeDescriptor chargeDescriptor(
+        Intent intent,
+        String amount,
+        String currency,
+        String recipient,
+        String description,
+        Map<String, Object> meta,
+        String expires,
+        Object body
+    ) {
+        return new ChargeDescriptor(
+            this, intent, amount, currency, recipient, description, meta, expires, body
+        );
     }
 
     /** Convenience overload with required fields only. */
@@ -185,7 +253,7 @@ public class MppHandler {
     /** Overload accepting a {@link ChargeRequest} — avoids trailing nulls for optional fields. */
     public ChargeDescriptor chargeDescriptor(ChargeRequest req) {
         return chargeDescriptor(req.intent(), req.amount(), req.currency(), req.recipient(),
-                                req.description(), req.meta(), req.expires());
+                                req.description(), req.meta(), req.expires(), req.body());
     }
 
     /** Build the request map for this handler and descriptor (applies defaults and method transforms). */
@@ -208,10 +276,16 @@ public class MppHandler {
         return method.transformRequest(request);
     }
 
-    private Map<String, Object> prepareCredential(Credential credential, Intent intent) {
+    private Map<String, Object> prepareCredential(
+        Credential credential, Intent intent, Object body
+    ) {
         requireSupported(intent);
         try {
-            return Verify.assertCredential(credential, intent, realm, secretKey, method.name());
+            Map<String, Object> request = Verify.assertCredential(
+                credential, intent, realm, secretKey, method.name()
+            );
+            Verify.assertBodyDigest(credential, body);
+            return request;
         } catch (ParseException e) {
             throw new MalformedCredentialException(e.getMessage());
         }

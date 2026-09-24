@@ -3,6 +3,8 @@ package com.stripe.mpp.methods.tempo;
 import com.stripe.mpp.ChallengeEcho;
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
+import com.stripe.mpp.error.InvalidChallengeException;
+import com.stripe.mpp.error.PaymentExpiredException;
 import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.store.MemoryStore;
 import com.stripe.mpp.store.Store;
@@ -11,6 +13,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +66,16 @@ class TempoChargeIntentTest {
 
     static Credential hashCredential(String txHash, String source) {
         return new Credential(ECHO, Map.of("type", "hash", "hash", txHash), source);
+    }
+
+    static Credential credential(String type, String expires) {
+        ChallengeEcho echo = new ChallengeEcho(
+            "chal-id", "api.example.com", "tempo", "charge", "e30", expires, null, null
+        );
+        Map<String, Object> payload = "transaction".equals(type)
+            ? Map.of("type", type, "signature", "0xsignedtx")
+            : Map.of("type", type, "hash", "0xpushedtx");
+        return new Credential(echo, payload, null);
     }
 
     static String didPkh(int chainId, String address) {
@@ -140,6 +155,22 @@ class TempoChargeIntentTest {
         return new TempoChargeIntent(RPC_URL, 5, 0, rpc, store);
     }
 
+    static TempoChargeIntent intent(TempoRpc rpc, Store store, Clock clock) {
+        return new TempoChargeIntent(RPC_URL, 5, 0, rpc, store, clock);
+    }
+
+    static final class MutableClock extends Clock {
+        private Instant instant;
+
+        MutableClock(Instant instant) { this.instant = instant; }
+
+        void set(Instant instant) { this.instant = instant; }
+
+        @Override public ZoneId getZone() { return ZoneId.of("UTC"); }
+        @Override public Clock withZone(ZoneId zone) { return this; }
+        @Override public Instant instant() { return instant; }
+    }
+
     @Test
     void pullPaymentBroadcastsAndReturnsReceipt() {
         StubRpc rpc = new StubRpc("0xdeadbeef", successReceipt(), 0);
@@ -148,6 +179,93 @@ class TempoChargeIntentTest {
         assertThat(receipt.status()).isEqualTo("success");
         assertThat(receipt.reference()).isEqualTo("0xdeadbeef");
         assertThat(receipt.method()).isEqualTo("tempo");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"transaction", "hash"})
+    void expiredChallengeIsRejectedBeforeRpc(String type) {
+        Instant deadline = Instant.parse("2030-01-01T00:00:00Z");
+        MutableClock clock = new MutableClock(deadline);
+        StubRpc rpc = new StubRpc("0xdeadbeef", successReceipt(), 0);
+        Credential credential = credential(type, deadline.toString());
+
+        assertThatThrownBy(() -> intent(rpc, new MemoryStore(), clock).verify(credential, REQUEST))
+            .isInstanceOf(PaymentExpiredException.class);
+        assertThat(rpc.sendCalls).isZero();
+        assertThat(rpc.receiptCalls).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"transaction", "hash"})
+    void missingOrMalformedExpiryIsRejectedBeforeRpc(String type) {
+        StubRpc rpc = new StubRpc("0xdeadbeef", successReceipt(), 0);
+        Credential missing = credential(type, null);
+
+        assertThatThrownBy(() -> intent(rpc).verify(missing, REQUEST))
+            .isInstanceOf(InvalidChallengeException.class)
+            .hasMessageContaining("missing expiry");
+        assertThat(rpc.sendCalls).isZero();
+        assertThat(rpc.receiptCalls).isZero();
+
+        Credential malformed = credential(type, "not-an-instant");
+        assertThatThrownBy(() -> intent(rpc).verify(malformed, REQUEST))
+            .isInstanceOf(InvalidChallengeException.class)
+            .hasMessageContaining("invalid expiry");
+        assertThat(rpc.sendCalls).isZero();
+        assertThat(rpc.receiptCalls).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"transaction", "hash"})
+    void receiptCompletingAtExpiryIsRejected(String type) {
+        Instant deadline = Instant.parse("2030-01-01T00:00:00Z");
+        MutableClock clock = new MutableClock(deadline.minusSeconds(1));
+        StubRpc rpc = new StubRpc("0xdeadbeef", successReceipt(), 0) {
+            @Override Map<String, Object> getTransactionReceipt(String rpcUrl, String txHash) {
+                clock.set(deadline);
+                return super.getTransactionReceipt(rpcUrl, txHash);
+            }
+        };
+
+        assertThatThrownBy(() -> intent(rpc, new MemoryStore(), clock)
+            .verify(credential(type, deadline.toString()), REQUEST))
+            .isInstanceOf(PaymentExpiredException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"transaction", "hash"})
+    void passesAuthenticatedDeadlineToStore(String type) {
+        Instant deadline = Instant.parse("2030-01-01T00:00:00Z");
+        MutableClock clock = new MutableClock(deadline.minusSeconds(1));
+        final Instant[] claimedDeadline = new Instant[1];
+        Store store = new Store() {
+            @Override public boolean tryClaim(String key) { return true; }
+            @Override public boolean tryClaim(String key, Instant expiresAt) {
+                claimedDeadline[0] = expiresAt;
+                return true;
+            }
+        };
+
+        Receipt result = intent(new StubRpc("0xdeadbeef", successReceipt(), 0), store, clock)
+            .verify(credential(type, deadline.toString()), REQUEST);
+
+        assertThat(result.status()).isEqualTo("success");
+        assertThat(claimedDeadline[0]).isEqualTo(deadline);
+    }
+
+    @Test
+    void rechecksExpiryAfterLegacyStoreReturns() {
+        Instant deadline = Instant.parse("2030-01-01T00:00:00Z");
+        MutableClock clock = new MutableClock(deadline.minusSeconds(1));
+        Store blockingLegacyStore = key -> {
+            clock.set(deadline);
+            return true;
+        };
+
+        assertThatThrownBy(() -> intent(
+            new StubRpc(null, successReceipt(), 0), blockingLegacyStore, clock
+        ).verify(credential("hash", deadline.toString()), REQUEST))
+            .isInstanceOf(PaymentExpiredException.class);
     }
 
     @ParameterizedTest

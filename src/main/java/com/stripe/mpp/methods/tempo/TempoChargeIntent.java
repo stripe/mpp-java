@@ -2,6 +2,8 @@ package com.stripe.mpp.methods.tempo;
 
 import com.stripe.mpp.Credential;
 import com.stripe.mpp.Receipt;
+import com.stripe.mpp.error.InvalidChallengeException;
+import com.stripe.mpp.error.PaymentExpiredException;
 import com.stripe.mpp.error.VerificationFailedException;
 import com.stripe.mpp.server.Intent;
 import com.stripe.mpp.server.ValidationResult;
@@ -9,6 +11,9 @@ import com.stripe.mpp.store.MemoryStore;
 import com.stripe.mpp.store.Store;
 
 import java.math.BigInteger;
+import java.time.Clock;
+import java.time.DateTimeException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -34,6 +39,10 @@ import java.util.regex.Pattern;
  * tag, server fingerprint of the challenge realm, and nonce
  * {@code keccak256(challengeId)[0..6]}). That is what stops a third party from
  * presenting someone else's settled transaction as their own payment.
+ *
+ * <p>Direct verification must complete before the authenticated challenge expiry, including
+ * receipt verification and the replay claim. A payment broadcast before expiry may settle even
+ * when verification subsequently fails with an expired challenge.
  *
  * <p>Create the intent once and reuse it so its replay store is shared across requests:
  *
@@ -66,6 +75,7 @@ public class TempoChargeIntent implements Intent {
     private final long retryDelayMs;
     private final TempoRpc rpc;
     private final Store store;
+    private final Clock clock;
 
     public TempoChargeIntent(String rpcUrl) {
         this(rpcUrl, DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_MS, new TempoRpc(), new MemoryStore());
@@ -89,11 +99,18 @@ public class TempoChargeIntent implements Intent {
     }
 
     TempoChargeIntent(String rpcUrl, int maxRetries, long retryDelayMs, TempoRpc rpc, Store store) {
+        this(rpcUrl, maxRetries, retryDelayMs, rpc, store, Clock.systemUTC());
+    }
+
+    TempoChargeIntent(
+        String rpcUrl, int maxRetries, long retryDelayMs, TempoRpc rpc, Store store, Clock clock
+    ) {
         this.rpcUrl = rpcUrl;
         this.maxRetries = maxRetries;
         this.retryDelayMs = retryDelayMs;
         this.rpc = rpc;
         this.store = Objects.requireNonNull(store, "store");
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     @Override
@@ -109,39 +126,68 @@ public class TempoChargeIntent implements Intent {
             throw new VerificationFailedException("missing or invalid payload");
         }
         Map<String, Object> payload = (Map<String, Object>) credential.payload();
+        Instant expiresAt = expiry(credential);
 
         String type = (String) payload.get("type");
         if ("transaction".equals(type)) {
             // Pull: client signed the tx, server broadcasts it.
-            return verifyTransaction((String) payload.get("signature"), request, credential);
+            return verifyTransaction((String) payload.get("signature"), request, credential, expiresAt);
         }
         if ("hash".equals(type)) {
             // Push: client already broadcast, server just verifies the receipt.
-            return verifyHash((String) payload.get("hash"), request, credential);
+            return verifyHash((String) payload.get("hash"), request, credential, expiresAt);
         }
         throw new VerificationFailedException("unrecognized payload type: " + type);
     }
 
-    private Receipt verifyTransaction(String rawTx, Map<String, Object> request, Credential credential) {
+    private Receipt verifyTransaction(
+        String rawTx, Map<String, Object> request, Credential credential, Instant expiresAt
+    ) {
+        assertNotExpired(credential.challenge().expires(), expiresAt);
         String sourceAddress = parseCredentialSource(credential.source(), chainIdFrom(request));
         String txHash = rpc.sendRawTransaction(rpcUrl, rawTx);
-        return claimOnce(awaitReceipt(txHash, request, credential, sourceAddress));
+        return claimOnce(awaitReceipt(txHash, request, credential, sourceAddress), credential, expiresAt);
     }
 
-    private Receipt verifyHash(String txHash, Map<String, Object> request, Credential credential) {
+    private Receipt verifyHash(
+        String txHash, Map<String, Object> request, Credential credential, Instant expiresAt
+    ) {
+        assertNotExpired(credential.challenge().expires(), expiresAt);
         // Validate the declared payer before reserving the hash so a malformed
         // source cannot burn an otherwise valid payment.
         String sourceAddress = parseCredentialSource(credential.source(), chainIdFrom(request));
-        return claimOnce(awaitReceipt(txHash, request, credential, sourceAddress));
+        return claimOnce(awaitReceipt(txHash, request, credential, sourceAddress), credential, expiresAt);
     }
 
     /** Records first use of the settled transaction, rejecting a hash that was already claimed. */
-    private Receipt claimOnce(Receipt receipt) {
+    private Receipt claimOnce(Receipt receipt, Credential credential, Instant expiresAt) {
+        String expires = credential.challenge().expires();
+        assertNotExpired(expires, expiresAt);
         String txHash = receipt.reference();
-        if (!store.tryClaim(REPLAY_KEY_PREFIX + txHash.toLowerCase(Locale.ROOT))) {
+        boolean claimed = store.tryClaim(REPLAY_KEY_PREFIX + txHash.toLowerCase(Locale.ROOT), expiresAt);
+        assertNotExpired(expires, expiresAt);
+        if (!claimed) {
             throw new VerificationFailedException("transaction hash already used: " + txHash);
         }
         return receipt;
+    }
+
+    private Instant expiry(Credential credential) {
+        String expires = credential.challenge().expires();
+        if (expires == null) {
+            throw new InvalidChallengeException(credential.challenge().id(), "missing expiry");
+        }
+        try {
+            return Instant.parse(expires);
+        } catch (DateTimeException e) {
+            throw new InvalidChallengeException(credential.challenge().id(), "invalid expiry");
+        }
+    }
+
+    private void assertNotExpired(String expires, Instant expiresAt) {
+        if (!clock.instant().isBefore(expiresAt)) {
+            throw new PaymentExpiredException(expires);
+        }
     }
 
     private Receipt awaitReceipt(

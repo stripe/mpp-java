@@ -355,6 +355,23 @@ class ParsingTest {
     }
 
     @Test
+    void receiptParseRejectsNonSuccessStatus() {
+        // Regression test for AGR-2026-086: an otherwise well-formed receipt
+        // whose status is anything other than "success" (e.g. "failed", as a
+        // malicious or buggy server might send) must be rejected, not parsed
+        // into a usable Receipt. status presence alone was previously
+        // sufficient; canonical mppx requires the literal value "success".
+        String header = ChallengeId.b64urlEncode(
+            "{\"method\":\"tempo\",\"reference\":\"ref-123\",\"status\":\"failed\","
+                + "\"timestamp\":\"2025-01-01T12:00:00Z\"}"
+        );
+
+        assertThatThrownBy(() -> Receipt.fromPaymentReceipt(header))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("status");
+    }
+
+    @Test
     void receiptParseRejectsInvalidMethodId() {
         String header = ChallengeId.b64urlEncode(
             "{\"method\":\"tempo-pay\",\"reference\":\"ref-123\",\"status\":\"success\","

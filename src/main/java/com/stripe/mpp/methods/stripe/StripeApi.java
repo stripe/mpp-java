@@ -20,14 +20,21 @@ class StripeApi {
     static final class Result {
         private final String id;
         private final String status;
+        private final boolean idempotentReplayed;
 
         Result(String id, String status) {
+            this(id, status, false);
+        }
+
+        Result(String id, String status, boolean idempotentReplayed) {
             this.id = id;
             this.status = status;
+            this.idempotentReplayed = idempotentReplayed;
         }
 
         String id() { return id; }
         String status() { return status; }
+        boolean idempotentReplayed() { return idempotentReplayed; }
 
         @Override
         public boolean equals(Object o) {
@@ -35,17 +42,19 @@ class StripeApi {
             if (!(o instanceof Result)) return false;
             Result result = (Result) o;
             return Objects.equals(id, result.id)
-                && Objects.equals(status, result.status);
+                && Objects.equals(status, result.status)
+                && idempotentReplayed == result.idempotentReplayed;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(id, status);
+            return Objects.hash(id, status, idempotentReplayed);
         }
 
         @Override
         public String toString() {
-            return "Result[id=" + id + ", status=" + status + "]";
+            return "Result[id=" + id + ", status=" + status
+                + ", idempotentReplayed=" + idempotentReplayed + "]";
         }
     }
 
@@ -77,7 +86,16 @@ class StripeApi {
                 .build();
 
             PaymentIntent pi = client.paymentIntents().create(builder.build(), options);
-            return new Result(pi.getId(), pi.getStatus());
+
+            boolean idempotentReplayed = false;
+            if (pi.getLastResponse() != null) {
+                idempotentReplayed = pi.getLastResponse().headers()
+                    .firstValue("Idempotent-Replayed")
+                    .map(Boolean::parseBoolean)
+                    .orElse(false);
+            }
+
+            return new Result(pi.getId(), pi.getStatus(), idempotentReplayed);
 
         } catch (StripeException e) {
             throw new VerificationFailedException(e.getMessage());

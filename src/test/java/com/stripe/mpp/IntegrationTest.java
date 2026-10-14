@@ -5,9 +5,15 @@ import com.stripe.mpp.error.PaymentException;
 import com.stripe.mpp.server.*;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -413,6 +419,67 @@ class IntegrationTest {
         assertThat(result).isInstanceOf(VerifyResult.Challenged.class);
         assertThat(intent.validations).isZero();
         assertThat(intent.broadcasts).isZero();
+    }
+
+    @Test
+    void equivalentConcurrentIssuancesGetDistinctChallengeIds() throws Exception {
+        MppHandler server = Mpp.create(new TestMethod(), "api.example.com", "super-secret");
+        Intent intent = new ChargeIntent();
+        Map<String, Object> meta = Map.of("route", "/api/photo");
+        String expires = "2099-01-01T00:00:00Z";
+        ExecutorService pool = Executors.newFixedThreadPool(10);
+        try {
+            List<Future<String>> issued = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                issued.add(pool.submit(() -> ((VerifyResult.Challenged) server.charge(
+                    null, intent, "10.000000", "USDC", "0xRecipient",
+                    null, meta, expires
+                )).challenge().id()));
+            }
+            Set<String> ids = new HashSet<>();
+            for (Future<String> id : issued) {
+                ids.add(id.get());
+            }
+            assertThat(ids).hasSize(10);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void issuanceNonceKeepsApplicationMetadata() {
+        MppHandler server = Mpp.create(new TestMethod(), "api.example.com", "super-secret");
+        Challenge challenge = ((VerifyResult.Challenged) server.charge(
+            null, new ChargeIntent(), "10.000000", "USDC", "0xRecipient",
+            null, Map.of("route", "/api/photo"), "2099-01-01T00:00:00Z"
+        )).challenge();
+
+        assertThat(challenge.opaque()).containsEntry("route", "/api/photo");
+        assertThat(challenge.opaque()).containsKey("_mppx_nonce");
+        assertThat(challenge.opaque()).hasSize(2);
+    }
+
+    @Test
+    void challengesIssuedWithoutANonceStillVerify() {
+        String secret = "super-secret";
+        MppHandler server = Mpp.create(new TestMethod(), "api.example.com", secret);
+        Intent intent = new ChargeIntent();
+        Map<String, Object> meta = Map.of("route", "/api/photo");
+        String expires = "2099-01-01T00:00:00Z";
+        Challenge issued = ((VerifyResult.Challenged) server.charge(
+            null, intent, "10.000000", "USDC", "0xRecipient", null, meta, expires
+        )).challenge();
+        Challenge legacy = Challenge.create(
+            secret, issued.realm(), issued.method(), issued.intent(), issued.request(),
+            expires, null, null, meta
+        );
+
+        VerifyResult result = server.charge(
+            new Credential(legacy.toEcho(), Map.of("sig", "x"), null).toAuthorization(),
+            intent, "10.000000", "USDC", "0xRecipient", null, meta, expires
+        );
+
+        assertThat(result).isInstanceOf(VerifyResult.Verified.class);
     }
 
     @Test

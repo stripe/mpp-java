@@ -81,7 +81,7 @@ public final class Verify {
             if (!Json.compact(echoRequest).equals(Json.compact(request))) {
                 throw new InvalidChallengeException(credential.challenge().id(), "request does not match");
             }
-            if (!Objects.equals(credential.challenge().opaqueRaw(), ChallengeId.encodeOpaque(meta))) {
+            if (!opaqueMatches(credential.challenge().opaqueRaw(), meta)) {
                 throw new InvalidChallengeException(credential.challenge().id(), "opaque data does not match");
             }
             assertBodyDigest(credential, body);
@@ -163,6 +163,20 @@ public final class Verify {
         return echoRequest;
     }
 
+    /**
+     * The echoed issuance nonce is authenticated by the challenge HMAC but is not a stable
+     * route requirement, so it is ignored here. Every other metadata field stays pinned.
+     */
+    static boolean opaqueMatches(String echoedOpaque, Map<String, Object> meta) {
+        Map<String, Object> echoed = echoedOpaque == null
+            ? null
+            : ChallengeId.b64urlDecodeToMap(echoedOpaque);
+        return Objects.equals(
+            ChallengeId.encodeOpaque(ChallengeMeta.routeMeta(echoed)),
+            ChallengeId.encodeOpaque(ChallengeMeta.routeMeta(meta))
+        );
+    }
+
     /** Fail closed unless the current body and the echoed digest are both absent or match. */
     static void assertBodyDigest(Credential credential, Object body) {
         String digest = credential.challenge().digest();
@@ -196,9 +210,10 @@ public final class Verify {
             resolvedExpires = Instant.now().plusSeconds(DEFAULT_EXPIRES_MINUTES * 60L).toString();
         }
         String digest = body == null ? null : BodyDigest.compute(body);
+        // Fresh randomness per issuance keeps otherwise identical challenges distinct.
         return Challenge.create(
             secretKey, realm, methodName, intent.name(), request,
-            resolvedExpires, digest, description, meta
+            resolvedExpires, digest, description, ChallengeMeta.withNonce(meta)
         );
     }
 

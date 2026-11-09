@@ -315,6 +315,39 @@ class ParsingTest {
     }
 
     @Test
+    void receiptPreservesSubscriptionId() {
+        Receipt original = new Receipt("success", Instant.parse("2025-01-01T12:00:00Z"),
+            "ref-123", "tempo", "ext-456", null, "sub-789");
+
+        String header = original.toPaymentReceipt();
+        Receipt parsed = Receipt.fromPaymentReceipt(header);
+
+        assertThat(parsed.subscriptionId()).isEqualTo("sub-789");
+        Map<?, ?> wireReceipt = (Map<?, ?>) Parsing.b64Decode(header);
+        assertThat(wireReceipt.get("subscriptionId")).isEqualTo("sub-789");
+        assertThat(wireReceipt.containsKey("subscription_id")).isFalse();
+    }
+
+    @Test
+    void receiptParseAcceptsLegacySubscriptionIdKey() {
+        String header = ChallengeId.b64urlEncode(
+            "{\"method\":\"tempo\",\"reference\":\"ref-123\",\"status\":\"success\","
+                + "\"timestamp\":\"2025-01-01T12:00:00Z\",\"subscription_id\":\"legacy-sub\"}"
+        );
+
+        Receipt parsed = Receipt.fromPaymentReceipt(header);
+
+        assertThat(parsed.subscriptionId()).isEqualTo("legacy-sub");
+    }
+
+    @Test
+    void receiptSuccessFactoryPreservesSubscriptionId() {
+        Receipt r = Receipt.success("ref-789", "tempo", "ext-000", null, "sub-123");
+
+        assertThat(r.subscriptionId()).isEqualTo("sub-123");
+    }
+
+    @Test
     void receiptSuccessFactory() {
         Receipt r = Receipt.success("ref-789", "tempo", "ext-000");
         assertThat(r.status()).isEqualTo("success");

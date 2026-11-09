@@ -59,8 +59,13 @@ final class Parsing {
         Map<String, String> params = new LinkedHashMap<>();
         Matcher m = AUTH_PARAM.matcher(input);
         while (m.find()) {
-            String key = m.group(1);
-            if (params.containsKey(key)) throw new ParseException("Duplicate parameter: " + key);
+            // Auth-parameter names are case-insensitive (RFC 9110 section 11.2).
+            // Normalize to lowercase for both the duplicate check and storage so
+            // "id" and "ID" are treated as the same parameter; otherwise only the
+            // lowercase lookup downstream is ever read.
+            String rawKey = m.group(1);
+            String key = rawKey.toLowerCase(Locale.ROOT);
+            if (params.containsKey(key)) throw new ParseException("Duplicate parameter: " + rawKey);
             String value = m.group(2) != null ? m.group(2) : m.group(3);
             // Unescape backslash sequences in quoted strings
             if (m.group(2) != null) value = value.replace("\\\"", "\"").replace("\\\\", "\\");

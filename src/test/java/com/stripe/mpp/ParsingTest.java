@@ -91,6 +91,40 @@ class ParsingTest {
     }
 
     @Test
+    void challengeFromWwwAuthenticateAcceptsCaseVariantParameterNames() {
+        String header = "Payment ID=\"abc\", REALM=\"api.example.com\", METHOD=\"tempo\", "
+            + "INTENT=\"charge\", REQUEST=\"e30\"";
+
+        var challenges = Challenge.fromWwwAuthenticate(header);
+
+        assertThat(challenges).hasSize(1);
+        assertThat(challenges.get(0).id()).isEqualTo("abc");
+        assertThat(challenges.get(0).realm()).isEqualTo("api.example.com");
+        assertThat(challenges.get(0).method()).isEqualTo("tempo");
+        assertThat(challenges.get(0).intent()).isEqualTo("charge");
+    }
+
+    @Test
+    void challengeFromWwwAuthenticateRejectsCaseVariantDuplicateId() {
+        String header = "Payment id=\"abc\", realm=\"api.example.com\", method=\"tempo\", "
+            + "intent=\"charge\", request=\"e30\", ID=\"different\"";
+
+        assertThatThrownBy(() -> Challenge.fromWwwAuthenticate(header))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("Duplicate");
+    }
+
+    @Test
+    void challengeFromWwwAuthenticateRejectsCaseVariantDuplicateRealm() {
+        String header = "Payment id=\"abc\", realm=\"api.example.com\", REALM=\"other.example.com\", "
+            + "method=\"tempo\", intent=\"charge\", request=\"e30\"";
+
+        assertThatThrownBy(() -> Challenge.fromWwwAuthenticate(header))
+            .isInstanceOf(com.stripe.mpp.error.ParseException.class)
+            .hasMessageContaining("Duplicate");
+    }
+
+    @Test
     void challengeEscapesQuotedStringDescription() {
         Challenge original = Challenge.create("secret", "example.com", "tempo", "charge", Map.of(),
             null, "Pay \"premium\" API", null);

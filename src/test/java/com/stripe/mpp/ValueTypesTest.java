@@ -137,6 +137,18 @@ class ValueTypesTest {
     }
 
     @Test
+    void receiptSubscriptionIdParticipatesInValueSemantics() {
+        Instant timestamp = Instant.parse("2025-01-01T00:00:00Z");
+        Receipt receipt = new Receipt("success", timestamp, "ref", "tempo", null, null, "sub_123");
+        Receipt equivalent = new Receipt("success", timestamp, "ref", "tempo", null, null, "sub_123");
+        Receipt withoutSubscription = new Receipt("success", timestamp, "ref", "tempo", null, null);
+
+        assertThat(receipt.subscriptionId()).isEqualTo("sub_123");
+        assertThat(receipt).isEqualTo(equivalent).hasSameHashCodeAs(equivalent);
+        assertThat(receipt).isNotEqualTo(withoutSubscription);
+    }
+
+    @Test
     void verifyResultsPreserveRecordStyleApiAndValueSemantics() {
         ChallengeEcho echo = new ChallengeEcho("id", "realm", "tempo", "charge", "request", null, null, null);
         Challenge challenge = new Challenge("id", "tempo", "charge", null, "realm", "request", null, null, null, null);

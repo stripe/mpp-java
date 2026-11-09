@@ -192,7 +192,9 @@ final class Parsing {
 
         String externalId = str(map, "externalId");
         if (externalId == null) externalId = str(map, "external_id");
-        return new Receipt(status, timestamp, reference, method, externalId, extra);
+        String subscriptionId = str(map, "subscriptionId");
+        if (subscriptionId == null) subscriptionId = str(map, "subscription_id");
+        return new Receipt(status, timestamp, reference, method, externalId, extra, subscriptionId);
     }
 
     static String formatPaymentReceipt(Receipt receipt) {
@@ -204,6 +206,8 @@ final class Parsing {
             map.put("method", receipt.method());
         if (receipt.externalId() != null)
             map.put("externalId", receipt.externalId());
+        if (receipt.subscriptionId() != null)
+            map.put("subscriptionId", receipt.subscriptionId());
         if (receipt.extra() != null)
             map.put("extra", receipt.extra());
         return b64Encode(map);

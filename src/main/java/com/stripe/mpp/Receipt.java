@@ -14,14 +14,21 @@ public final class Receipt {
     private final String method;
     private final String externalId;
     private final Object extra;
+    private final String subscriptionId;
 
     public Receipt(String status, Instant timestamp, String reference, String method, String externalId, Object extra) {
+        this(status, timestamp, reference, method, externalId, extra, null);
+    }
+
+    public Receipt(String status, Instant timestamp, String reference, String method, String externalId, Object extra,
+                   String subscriptionId) {
         this.status = status;
         this.timestamp = timestamp;
         this.reference = reference;
         this.method = method;
         this.externalId = externalId;
         this.extra = extra;
+        this.subscriptionId = subscriptionId;
     }
 
     public String status() { return status; }
@@ -30,12 +37,18 @@ public final class Receipt {
     public String method() { return method; }
     public String externalId() { return externalId; }
     public Object extra() { return extra; }
+    public String subscriptionId() { return subscriptionId; }
 
     /**
      * Create a success receipt with the current timestamp.
      */
     public static Receipt success(String reference, String method, String externalId, Object extra) {
         return new Receipt("success", Instant.now(), reference, method, externalId, extra);
+    }
+
+    public static Receipt success(String reference, String method, String externalId, Object extra,
+                                  String subscriptionId) {
+        return new Receipt("success", Instant.now(), reference, method, externalId, extra, subscriptionId);
     }
 
     public static Receipt success(String reference, String method, String externalId) {
@@ -78,12 +91,13 @@ public final class Receipt {
             && Objects.equals(reference, receipt.reference)
             && Objects.equals(method, receipt.method)
             && Objects.equals(externalId, receipt.externalId)
-            && Objects.equals(extra, receipt.extra);
+            && Objects.equals(extra, receipt.extra)
+            && Objects.equals(subscriptionId, receipt.subscriptionId);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(status, timestamp, reference, method, externalId, extra);
+        return Objects.hash(status, timestamp, reference, method, externalId, extra, subscriptionId);
     }
 
     @Override
@@ -95,6 +109,7 @@ public final class Receipt {
             + ", method=" + method
             + ", externalId=" + externalId
             + ", extra=" + extra
+            + ", subscriptionId=" + subscriptionId
             + "]";
     }
 }
